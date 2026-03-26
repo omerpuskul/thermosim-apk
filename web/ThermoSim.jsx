@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -589,7 +588,7 @@ export default function ThermoSim() {
     thermRev:false, thermRevRate:0.5,
     spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
     sH:[], sN:[], sR:[], eH:[], kH:[],
-    rxnT:0, pCntNorm:60, pCntRev:60, lastP:"hot_cold"
+    rxnT:0, pCntNorm:60, pCntRev:60, lastP:"hot_cold", spdAcc:0, spdRaw:500
   });
   const raf = useRef(null);
   const [, tick] = useState(0);
@@ -640,9 +639,11 @@ export default function ThermoSim() {
       const s = S.current;
       canvas.width = W; canvas.height = H + GH + 8;
 
-      if (s.run) {
-        const steps = Math.max(1, Math.round(s.spd));
-        for (let st = 0; st < steps; st++) {
+      if (s.run && s.spd > 0) {
+        // Accumulator: spd=0.25 → her 4 karede 1 adım, spd=3 → her karede 3 adım
+        s.spdAcc += s.spd;
+        while (s.spdAcc >= 1) {
+          s.spdAcc -= 1;
 
           if (s.mode === "reverse" && s.revMode === "playback" && s.revF) {
             // ── Playback reverse ──
@@ -783,7 +784,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v15</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v18</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -858,7 +859,32 @@ export default function ThermoSim() {
 
       <div style={{padding:"8px",minHeight:160,paddingBottom:40}}>
         {tab==="ctrl"&&(<div>
-          <Sl label="Hız" value={s.spd} min={0} max={5} step={.05} fmt={v=>v===0?"⏹ Durdur":v.toFixed(2)+"×"} onChange={v=>{s.spd=v;bump();}}/>
+          {/* Hız: özel çift bölgeli slider — ortası 1×, sol yarı 0.01-1, sağ yarı 1-100 */}
+          <div style={{marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#778",marginBottom:2}}>
+              <span>Hız</span>
+              <span style={{color:"#aab"}}>{
+                s.spdRaw===0?"⏹ Durdur":
+                (()=>{
+                  const v = s.spdRaw<=500 ? 0.01+(s.spdRaw-1)/499*0.99 : 1+(s.spdRaw-500)/500*99;
+                  return s.spdRaw<=0?"⏹ Durdur": v<1?v.toFixed(2)+"×":v<10?v.toFixed(1)+"×":Math.round(v)+"×";
+                })()
+              }</span>
+            </div>
+            <input type="range" min={0} max={1000} step={1} value={s.spdRaw}
+              onChange={e=>{
+                const raw=parseInt(e.target.value);
+                s.spdRaw=raw;
+                if(raw===0){s.spd=0;}
+                else if(raw<=500){s.spd=0.01+(raw-1)/499*0.99;}
+                else{s.spd=1+(raw-500)/500*99;}
+                bump();
+              }}
+              style={{width:"100%",height:6,accentColor:"#3070d0",cursor:"pointer"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:"#334",marginTop:1}}>
+              <span>⏹</span><span>0.01×</span><span style={{color:"#5080c0"}}>▼ 1×</span><span>50×</span><span>100×</span>
+            </div>
+          </div>
           <Sl label="Normal ●" value={s.pCntNorm} min={0} max={200} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntNorm=v;bump();}}/>
           <Sl label="Ters ◆" value={s.pCntRev} min={0} max={200} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntRev=v;bump();}}/>
           <div style={{fontSize:8,color:"#556",marginBottom:4}}>Toplam: {s.pCntNorm+s.pCntRev} parçacık (değişiklik sıfırlamada uygulanır)</div>
