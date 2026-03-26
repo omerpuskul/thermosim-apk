@@ -39,10 +39,10 @@ jobs:
 
       - name: Build APK
         run: |
-          gradle assembleRelease --no-daemon
+          gradle assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ThermoSim-v15
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/debug/*.apk
