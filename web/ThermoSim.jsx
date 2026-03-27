@@ -802,18 +802,23 @@ export default function ThermoSim() {
   const modeLabels={normal:"Normal",reverse:"Ters",mixed_physical:"Karma Fiz.",mixed_cinematic:"Karma Sin."};
 
   const setMode=(m)=>{
-    const old = s.mode;
     s.mode = m;
 
     // Parçacık sektörlerini moda göre dönüştür
     if (m === "normal") {
-      // Tüm parçacıkları normal yap
       for (const p of s.ps) p.sector = SECTOR_NORMAL;
+      // Normal mod varsayılan ayarları
+      s.thermRev = false;
+      s.spatialRev = false;
+      s.coup = 0;
+      s.revMode = "dynamic";
     } else if (m === "reverse") {
-      // Tüm parçacıkları reverse yap
       for (const p of s.ps) p.sector = SECTOR_REVERSE;
-    } else if (m === "mixed_physical" || m === "mixed_cinematic") {
-      // Karma: eğer hepsi aynı sektördeyse yarı yarıya böl
+      // Ters mod varsayılan ayarları
+      s.revMode = "dynamic";
+      s.coup = 0;
+    } else if (m === "mixed_physical") {
+      // Karma fiziksel: hepsi aynı sektördeyse yarı yarıya böl
       const allSame = s.ps.every(p => p.sector === s.ps[0]?.sector);
       if (allSame && s.ps.length > 1) {
         const half = Math.floor(s.ps.length / 2);
@@ -821,7 +826,27 @@ export default function ThermoSim() {
           s.ps[i].sector = i < half ? SECTOR_NORMAL : SECTOR_REVERSE;
         }
       }
+      s.coup = Math.max(s.coup, 0.1); // Minimum kuplaj
+      s.revMode = "dynamic";
+    } else if (m === "mixed_cinematic") {
+      const allSame = s.ps.every(p => p.sector === s.ps[0]?.sector);
+      if (allSame && s.ps.length > 1) {
+        const half = Math.floor(s.ps.length / 2);
+        for (let i = 0; i < s.ps.length; i++) {
+          s.ps[i].sector = i < half ? SECTOR_NORMAL : SECTOR_REVERSE;
+        }
+      }
+      s.coup = Math.max(s.coup, 0.3);
+      s.revMode = "dynamic";
     }
+
+    // Parçacık sayı slider'larını gerçek dağılıma göre güncelle
+    s.pCntNorm = s.ps.filter(p => p.sector === SECTOR_NORMAL).length;
+    s.pCntRev = s.ps.filter(p => p.sector === SECTOR_REVERSE).length;
+
+    // Sıfırlama butonunun moda uygun preset'e yönlenmesi
+    const modePresetMap = {normal:"hot_cold", reverse:"reverse", mixed_physical:"mixed_w", mixed_cinematic:"mixed_w"};
+    s.lastP = modePresetMap[m] || s.lastP;
 
     // Reverse playback hazırla
     if (m === "reverse" && s.revMode === "playback") {
@@ -845,7 +870,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v19</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v20</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
