@@ -471,11 +471,11 @@ const PRESET_DEFAULTS = {
 function makePreset(name, W, H, nNorm, nRev){
   const ps=[];
   let cfg = {...PRESET_DEFAULTS};
-  const nn = nNorm != null ? nNorm : 0;
-  const nr = nRev != null ? nRev : 0;
+  const _nN = nNorm, _nR = nRev; // null olabilir → preset default kullanılır
 
-  // Yardımcı: preset dağılım kalıbına göre normal + reverse parçacık üret
-  // pattern fonksiyonu (i, count, sector) → {x, y, vx, vy, ptype} döner
+  // nn/nr'yi cfg ayarlandıktan sonra çöz
+  function res() { return [_nN != null ? _nN : cfg.pCntNorm, _nR != null ? _nR : cfg.pCntRev]; }
+
   function addParticles(count, sector, patternFn) {
     for (let i = 0; i < count; i++) {
       const p = patternFn(i, count);
@@ -492,6 +492,7 @@ function makePreset(name, W, H, nNorm, nRev){
         const [vx,vy] = randVel(hot ? 8 : 1);
         return { x: hot ? Math.random()*(W/2-20)+10 : W/2+10+Math.random()*(W/2-20), y: Math.random()*(H-20)+10, vx, vy };
       };
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, hotColdPattern);
       addParticles(nr, SECTOR_REVERSE, hotColdPattern);
       cfg.mode = nr>0 && nn===0 ? "reverse" : nr>0 ? "mixed_physical" : "normal";
@@ -506,6 +507,7 @@ function makePreset(name, W, H, nNorm, nRev){
         const [vx,vy] = randVel(3);
         return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy };
       };
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, scatterPattern);
       addParticles(nr, SECTOR_REVERSE, scatterPattern);
       cfg.mode = nn>0 ? "mixed_physical" : "reverse";
@@ -520,6 +522,7 @@ function makePreset(name, W, H, nNorm, nRev){
         const [vx,vy] = randVel(5);
         return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy, ptype: i < count/2 ? TYPE_A : TYPE_B };
       };
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, rxnPattern);
       addParticles(nr, SECTOR_REVERSE, rxnPattern);
       cfg.mode = nr>0 && nn===0 ? "reverse" : nr>0 ? "mixed_physical" : "normal";
@@ -529,6 +532,7 @@ function makePreset(name, W, H, nNorm, nRev){
     case "mixed_w": {
       cfg.pCntNorm=60; cfg.pCntRev=60; cfg.coup=0.1;
       // Dağılım: reverse sol, normal sağ
+      const [nn,nr]=res();
       addParticles(nr, SECTOR_REVERSE, () => {
         const [vx,vy] = randVel(4);
         return { x: Math.random()*(W/2-20)+10, y: Math.random()*(H-20)+10, vx, vy };
@@ -543,6 +547,7 @@ function makePreset(name, W, H, nNorm, nRev){
     case "mixed_d": {
       cfg.pCntNorm=80; cfg.pCntRev=40; cfg.coup=0.6;
       // Dağılım: reverse merkez halka, normal dağınık
+      const [nn,nr]=res();
       addParticles(nr, SECTOR_REVERSE, (i, count) => {
         const a=(2*Math.PI*i)/(count||1), r=30+Math.random()*40;
         const [vx,vy] = randVel(2);
@@ -564,6 +569,7 @@ function makePreset(name, W, H, nNorm, nRev){
         const [vx,vy] = randVel(hot ? 7 : 1.5);
         return { x: hot ? Math.random()*(W/2-20)+10 : W/2+10+Math.random()*(W/2-20), y: Math.random()*(H-20)+10, vx, vy, ptype: hot ? TYPE_A : TYPE_B };
       };
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, partPattern);
       addParticles(nr, SECTOR_REVERSE, partPattern);
       cfg.mode = nr>0 && nn===0 ? "reverse" : nr>0 ? "mixed_physical" : "normal";
@@ -579,6 +585,7 @@ function makePreset(name, W, H, nNorm, nRev){
         if (i < 2*q) { const [vx,vy]=randVel(5); return { x:Math.random()*(W/2-20)+10, y:Math.random()*(H-20)+10, vx, vy, ptype:TYPE_OX }; }
         const [vx,vy]=randVel(7); return { x:W/2+10+Math.random()*(W/2-20), y:Math.random()*(H-20)+10, vx, vy, ptype:TYPE_AB };
       };
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, endoPattern);
       addParticles(nr, SECTOR_REVERSE, (i, count) => {
         const [vx,vy]=randVel(5);
@@ -596,6 +603,7 @@ function makePreset(name, W, H, nNorm, nRev){
         const temp=4+(Math.random()-0.5)*2; const [vx,vy]=randVel(temp);
         return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy };
       };
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, thermPattern);
       addParticles(nr, SECTOR_REVERSE, thermPattern);
       cfg.mode = nn>0 ? "mixed_physical" : "reverse";
@@ -607,6 +615,7 @@ function makePreset(name, W, H, nNorm, nRev){
       cfg.pCntNorm=60; cfg.pCntRev=60; cfg.coup=0.05;
       cfg.thermRev=true; cfg.thermRevRate=0.5; cfg.revMode="dynamic";
       // Dağılım: normal sol, reverse sağ, homojen sıcaklık
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, () => {
         const temp=4+(Math.random()-0.5)*1; const [vx,vy]=randVel(temp);
         return { x: Math.random()*(W/2-30)+15, y: Math.random()*(H-20)+10, vx, vy };
@@ -627,6 +636,7 @@ function makePreset(name, W, H, nNorm, nRev){
         const temp=4+(Math.random()-0.5)*1.5; const [vx,vy]=randVel(temp);
         return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy };
       };
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, fullRevPattern);
       addParticles(nr, SECTOR_REVERSE, fullRevPattern);
       cfg.mode = nn>0 ? "mixed_physical" : "reverse";
@@ -639,6 +649,7 @@ function makePreset(name, W, H, nNorm, nRev){
       cfg.thermRev=true; cfg.thermRevRate=0.5; cfg.revMode="dynamic";
       cfg.spatialRev=true; cfg.spatialRevMode="cluster"; cfg.spatialHeatMode="heat";
       // Dağılım: normal sol küme (sıcak-soğuk), reverse sağ dağınık
+      const [nn,nr]=res();
       addParticles(nn, SECTOR_NORMAL, (i, count) => {
         const hot=i<count/2; const temp=hot?8:1.5; const [vx,vy]=randVel(temp);
         const cx=W*0.15, cy=H*0.5;
@@ -655,8 +666,9 @@ function makePreset(name, W, H, nNorm, nRev){
   }
 
   cfg.ps = ps;
-  cfg.pCntNorm = nn;
-  cfg.pCntRev = nr;
+  const [fnn, fnr] = res();
+  cfg.pCntNorm = fnn;
+  cfg.pCntRev = fnr;
   return cfg;
 }
 
@@ -724,10 +736,25 @@ export default function ThermoSim() {
     s.ps = s.revF[0].map(p => ({...p}));
   }, []);
 
+  // Snapshot: senaryo+mod seçiminden sonraki ayar durumunu saklar
+  // ⏪ buna döner, 🔄 sadece parçacıkları yeniler
+  function saveSnapshot() {
+    const s = S.current;
+    s._snapshot = {
+      lastP: s.lastP, mode: s.mode, rxn: s.rxn, coup: s.coup, rest: s.rest, eam: s.eam,
+      walls: s.walls.map(w=>({...w})), wallSolidity: s.wallSolidity, wallThermalPerm: s.wallThermalPerm,
+      thermRev: s.thermRev, thermRevRate: s.thermRevRate,
+      spatialRev: s.spatialRev, spatialRevRate: s.spatialRevRate,
+      spatialRevMode: s.spatialRevMode, spatialHeatMode: s.spatialHeatMode,
+      revMode: s.revMode, pCntNorm: s.pCntNorm, pCntRev: s.pCntRev,
+    };
+  }
+
   const load = useCallback((name) => {
     const s = S.current;
     const h = Math.round(simW * 0.65);
-    const pr = makePreset(name, simW, h, s.pCntNorm, s.pCntRev);
+    // null, null → makePreset kendi default parçacık sayılarını kullanır
+    const pr = makePreset(name, simW, h, null, null);
 
     // Parçacıklar
     s.ps = pr.ps;
@@ -763,6 +790,8 @@ export default function ThermoSim() {
     if (s.mode === "reverse" && s.revMode === "playback") {
       genReverse(s.ps, simW, h);
     }
+    // Snapshot kaydet: senaryo yükleme sonrası referans noktası
+    saveSnapshot();
     bump();
   }, [simW, genReverse]);
 
@@ -946,18 +975,15 @@ export default function ThermoSim() {
     // Parçacık sektörlerini moda göre dönüştür
     if (m === "normal") {
       for (const p of s.ps) p.sector = SECTOR_NORMAL;
-      // Normal mod varsayılan ayarları
       s.thermRev = false;
       s.spatialRev = false;
       s.coup = 0;
       s.revMode = "dynamic";
     } else if (m === "reverse") {
       for (const p of s.ps) p.sector = SECTOR_REVERSE;
-      // Ters mod varsayılan ayarları
       s.revMode = "dynamic";
       s.coup = 0;
     } else if (m === "mixed_physical") {
-      // Karma fiziksel: hepsi aynı sektördeyse yarı yarıya böl
       const allSame = s.ps.every(p => p.sector === s.ps[0]?.sector);
       if (allSame && s.ps.length > 1) {
         const half = Math.floor(s.ps.length / 2);
@@ -965,7 +991,7 @@ export default function ThermoSim() {
           s.ps[i].sector = i < half ? SECTOR_NORMAL : SECTOR_REVERSE;
         }
       }
-      s.coup = Math.max(s.coup, 0.1); // Minimum kuplaj
+      s.coup = Math.max(s.coup, 0.1);
       s.revMode = "dynamic";
     } else if (m === "mixed_cinematic") {
       const allSame = s.ps.every(p => p.sector === s.ps[0]?.sector);
@@ -983,11 +1009,10 @@ export default function ThermoSim() {
     s.pCntNorm = s.ps.filter(p => p.sector === SECTOR_NORMAL).length;
     s.pCntRev = s.ps.filter(p => p.sector === SECTOR_REVERSE).length;
 
-    // Sıfırlama butonunun moda uygun preset'e yönlenmesi
-    const modePresetMap = {normal:"hot_cold", reverse:"reverse", mixed_physical:"mixed_w", mixed_cinematic:"mixed_w"};
-    s.lastP = modePresetMap[m] || s.lastP;
+    // NOT: lastP değiştirilMEZ — senaryo aynı kalır, sadece mod değişir
+    // Snapshot kaydet: mod değişimi sonrası referans noktası
+    saveSnapshot();
 
-    // Reverse playback hazırla
     if (m === "reverse" && s.revMode === "playback") {
       genReverse(s.ps, simW, simH);
     }
@@ -1009,7 +1034,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v21</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v22</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1042,9 +1067,35 @@ export default function ThermoSim() {
         <button onClick={()=>softReset()}
           style={{flex:.5,padding:"10px 0",borderRadius:6,border:"none",background:"#1a2a10",color:"#ac0",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}
           title="Parçacıkları yenile (ayarları koru)">🔄</button>
-        <button onClick={()=>load(s.lastP||"hot_cold")}
+        <button onClick={()=>{
+          // ⏪ Snapshot'a dön: senaryo+mod seçiminden sonraki ayar durumuna sıfırla
+          const s = S.current;
+          const snap = s._snapshot;
+          if (!snap) { load(s.lastP||"hot_cold"); return; }
+          const h = Math.round(simW * 0.65);
+          // Snapshot'taki ayarları geri yükle
+          Object.assign(s, {
+            mode: snap.mode, rxn: snap.rxn, coup: snap.coup, rest: snap.rest, eam: snap.eam,
+            walls: snap.walls.map(w=>({...w})), wallSolidity: snap.wallSolidity, wallThermalPerm: snap.wallThermalPerm,
+            thermRev: snap.thermRev, thermRevRate: snap.thermRevRate,
+            spatialRev: snap.spatialRev, spatialRevRate: snap.spatialRevRate,
+            spatialRevMode: snap.spatialRevMode, spatialHeatMode: snap.spatialHeatMode,
+            revMode: snap.revMode, pCntNorm: snap.pCntNorm, pCntRev: snap.pCntRev,
+            lastP: snap.lastP,
+          });
+          // Parçacıkları snapshot ayarlarıyla yeniden üret
+          const pr = makePreset(snap.lastP, simW, h, snap.pCntNorm, snap.pCntRev);
+          s.ps = pr.ps;
+          s.frame=0; s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[]; s.rxnT=0;
+          s.revF=null; s.revI=0; s.run=false; s.spdAcc=0;
+          for(const p of s.ps) delete p._wallSide;
+          // Mod'u snapshot'tan yeniden uygula (sektör dönüşümü)
+          if(snap.mode!==pr.mode) setMode(snap.mode);
+          else if(s.mode==="reverse"&&s.revMode==="playback") genReverse(s.ps,simW,h);
+          bump();
+        }}
           style={{flex:.5,padding:"10px 0",borderRadius:6,border:"none",background:"#2a1010",color:"#c66",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}
-          title="Varsayılan ayarlara dön">⏪</button>
+          title="Senaryo+mod varsayılanına dön">⏪</button>
       </div>
 
       <div style={{display:"flex",gap:3,padding:"0 8px 4px"}}>
