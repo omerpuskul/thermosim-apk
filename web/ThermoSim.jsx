@@ -457,93 +457,109 @@ function decoherence(ps,W,H){
 }
 
 // ─── PRESETS ───────────────────────────────────────────────────
+// Her preset TÜM ilgili state alanlarını döner.
+// Eksik alan bırakılmaz — load fonksiyonu bunları doğrudan uygular.
+const PRESET_DEFAULTS = {
+  mode:"normal", rxn:false, coup:0, walls:[],
+  thermRev:false, thermRevRate:0.5,
+  spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
+  revMode:"dynamic", wallSolidity:1.0, wallThermalPerm:0.0,
+  pCntNorm:80, pCntRev:0, // Önerilen parçacık sayıları
+};
+
 function makePreset(name, W, H, nNorm, nRev){
-  const ps=[], cnt=nNorm+nRev, half=Math.floor(cnt/2);
+  const ps=[];
+  // Preset kendi önerdiği sayıları kullanır, kullanıcı sayıları yedek
+  let cfg = {...PRESET_DEFAULTS};
+
   switch(name){
-    case "hot_cold":
-      // Sadece normal parçacıklar: sol sıcak, sağ soğuk
-      for(let i=0;i<Math.floor(nNorm/2);i++){const[vx,vy]=randVel(8);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy));}
-      for(let i=0;i<nNorm-Math.floor(nNorm/2);i++){const[vx,vy]=randVel(1);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy));}
-      // Ters parçacık varsa ekle (kullanıcı seçimi)
-      for(let i=0;i<nRev;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
-      return{ps,mode:nRev>0&&nNorm===0?"reverse":nRev>0?"mixed_physical":"normal",rxn:false,coup:nRev>0&&nNorm>0?0.1:0,walls:[]};
-    case "reverse": {
-      // Ters parçacıklar: dağınık
-      for(let i=0;i<nRev;i++){
-        const[vx,vy]=randVel(3);
-        ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));
-      }
-      // Normal varsa sol tarafa
-      for(let i=0;i<nNorm;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
-      return{ps,mode:nNorm>0?"mixed_physical":"reverse",rxn:false,coup:nNorm>0?0.1:0,walls:[],spatialRev:true,revMode:"dynamic"};
+    case "hot_cold": {
+      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal";
+      const n=nNorm||cfg.pCntNorm;
+      for(let i=0;i<Math.floor(n/2);i++){const[vx,vy]=randVel(8);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy));}
+      for(let i=0;i<n-Math.floor(n/2);i++){const[vx,vy]=randVel(1);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy));}
+      break;
     }
-    case "rxn_ab":
-      for(let i=0;i<Math.floor(nNorm/2);i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A));}
-      for(let i=0;i<nNorm-Math.floor(nNorm/2);i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_B));}
-      for(let i=0;i<nRev;i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,Math.random()<0.5?TYPE_A:TYPE_B,SECTOR_REVERSE));}
-      return{ps,mode:nRev>0&&nNorm===0?"reverse":nRev>0?"mixed_physical":"normal",rxn:true,coup:nRev>0&&nNorm>0?0.1:0,walls:[]};
-    case "mixed_w":
-      for(let i=0;i<nRev;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
-      for(let i=0;i<nNorm;i++){const[vx,vy]=randVel(4);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
-      return{ps,mode:"mixed_physical",rxn:false,coup:.1,walls:[]};
-    case "mixed_d":
-      {const nr=nRev||Math.floor(cnt/3);
+    case "reverse": {
+      cfg.pCntNorm=0; cfg.pCntRev=100; cfg.mode="reverse"; cfg.revMode="dynamic";
+      cfg.spatialRev=true; cfg.spatialRevMode="cluster"; cfg.spatialHeatMode="heat";
+      const n=nRev||cfg.pCntRev;
+      for(let i=0;i<n;i++){const[vx,vy]=randVel(3);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      break;
+    }
+    case "rxn_ab": {
+      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal"; cfg.rxn=true;
+      const n=nNorm||cfg.pCntNorm;
+      for(let i=0;i<Math.floor(n/2);i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A));}
+      for(let i=0;i<n-Math.floor(n/2);i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_B));}
+      break;
+    }
+    case "mixed_w": {
+      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.mode="mixed_physical"; cfg.coup=0.1;
+      const nn=nNorm||cfg.pCntNorm, nr=nRev||cfg.pCntRev;
+      for(let i=0;i<nr;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      for(let i=0;i<nn;i++){const[vx,vy]=randVel(4);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
+      break;
+    }
+    case "mixed_d": {
+      cfg.pCntNorm=80; cfg.pCntRev=40; cfg.mode="mixed_physical"; cfg.coup=0.6;
+      const nr=nRev||cfg.pCntRev, nn=nNorm||cfg.pCntNorm;
       for(let i=0;i<nr;i++){const a=(2*Math.PI*i)/nr,r=30+Math.random()*40;const[vx,vy]=randVel(2);ps.push(createP(W/2+r*Math.cos(a),H/2+r*Math.sin(a),vx,vy,TYPE_A,SECTOR_REVERSE));}
-      const nn=nNorm||(cnt-nr);
       for(let i=0;i<nn;i++){const[vx,vy]=randVel(6);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
-      return{ps,mode:"mixed_physical",rxn:false,coup:.6,walls:[]};}
-    case "partition":
-      for(let i=0;i<nNorm;i++){const hot=i<nNorm/2;const[vx,vy]=randVel(hot?7:1.5);ps.push(createP(hot?Math.random()*(W/2-20)+10:W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,hot?TYPE_A:TYPE_B));}
-      for(let i=0;i<nRev;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
-      return{ps,mode:nRev>0?"mixed_physical":"normal",rxn:false,coup:nRev>0?0.1:0,walls:[{x1:W/2,y1:0,x2:W/2,y2:H}]};
-    case "endo_exo":
-      {const q=Math.floor(nNorm/4);
+      break;
+    }
+    case "partition": {
+      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal";
+      cfg.walls=[{x1:W/2,y1:0,x2:W/2,y2:H}]; cfg.wallSolidity=1.0;
+      const n=nNorm||cfg.pCntNorm;
+      for(let i=0;i<n;i++){const hot=i<n/2;const[vx,vy]=randVel(hot?7:1.5);ps.push(createP(hot?Math.random()*(W/2-20)+10:W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,hot?TYPE_A:TYPE_B));}
+      break;
+    }
+    case "endo_exo": {
+      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal"; cfg.rxn=true;
+      const n=nNorm||cfg.pCntNorm, q=Math.floor(n/4);
       for(let i=0;i<q;i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_FUEL));}
       for(let i=0;i<q;i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_OX));}
-      for(let i=0;i<nNorm-2*q;i++){const[vx,vy]=randVel(7);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_AB));}
-      for(let i=0;i<nRev;i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
-      return{ps,mode:nRev>0?"mixed_physical":"normal",rxn:true,coup:nRev>0?0.1:0,walls:[]};}
+      for(let i=0;i<n-2*q;i++){const[vx,vy]=randVel(7);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_AB));}
+      break;
+    }
     case "therm_rev": {
-      for(let i=0;i<nRev;i++){
-        const temp=4+(Math.random()-0.5)*2;const[vx,vy]=randVel(temp);
-        ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));
-      }
-      for(let i=0;i<nNorm;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
-      return{ps,mode:nNorm>0?"mixed_physical":"reverse",rxn:false,coup:nNorm>0?0.05:0,walls:[],thermRev:true,revMode:"dynamic"};
+      cfg.pCntNorm=0; cfg.pCntRev=100; cfg.mode="reverse"; cfg.revMode="dynamic";
+      cfg.thermRev=true; cfg.thermRevRate=0.5;
+      const n=nRev||cfg.pCntRev;
+      for(let i=0;i<n;i++){const temp=4+(Math.random()-0.5)*2;const[vx,vy]=randVel(temp);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      break;
     }
     case "therm_mixed": {
-      for(let i=0;i<nNorm;i++){
-        const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);
-        ps.push(createP(Math.random()*(W/2-30)+15,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));
-      }
-      for(let i=0;i<nRev;i++){
-        const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);
-        ps.push(createP(W/2+15+Math.random()*(W/2-30),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));
-      }
-      return{ps,mode:"mixed_physical",rxn:false,coup:0.05,walls:[],thermRev:true,revMode:"dynamic"};
+      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.mode="mixed_physical"; cfg.coup=0.05;
+      cfg.thermRev=true; cfg.thermRevRate=0.5; cfg.revMode="dynamic";
+      const nn=nNorm||cfg.pCntNorm, nr=nRev||cfg.pCntRev;
+      for(let i=0;i<nn;i++){const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);ps.push(createP(Math.random()*(W/2-30)+15,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
+      for(let i=0;i<nr;i++){const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);ps.push(createP(W/2+15+Math.random()*(W/2-30),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      break;
     }
     case "full_rev": {
-      for(let i=0;i<nRev;i++){
-        const temp=4+(Math.random()-0.5)*1.5;const[vx,vy]=randVel(temp);
-        ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));
-      }
-      for(let i=0;i<nNorm;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
-      return{ps,mode:nNorm>0?"mixed_physical":"reverse",rxn:false,coup:nNorm>0?0.05:0,walls:[],thermRev:true,revMode:"dynamic"};
+      cfg.pCntNorm=0; cfg.pCntRev=100; cfg.mode="reverse"; cfg.revMode="dynamic";
+      cfg.thermRev=true; cfg.thermRevRate=0.5;
+      cfg.spatialRev=true; cfg.spatialRevMode="cluster"; cfg.spatialHeatMode="heat";
+      const n=nRev||cfg.pCntRev;
+      for(let i=0;i<n;i++){const temp=4+(Math.random()-0.5)*1.5;const[vx,vy]=randVel(temp);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      break;
     }
     case "full_mixed": {
-      for(let i=0;i<nNorm;i++){
-        const hot=i<nNorm/2;const temp=hot?8:1.5;const[vx,vy]=randVel(temp);
-        const cx=W*0.15,cy=H*0.5;
-        ps.push(createP(Math.max(6,Math.min(W/2-10,cx+(Math.random()-0.5)*70)),Math.max(6,Math.min(H-6,cy+(Math.random()-0.5)*60)),vx,vy,TYPE_A,SECTOR_NORMAL));
-      }
-      for(let i=0;i<nRev;i++){
-        const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);
-        ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));
-      }
-      return{ps,mode:"mixed_physical",rxn:false,coup:0.05,walls:[],thermRev:true,revMode:"dynamic"};
+      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.mode="mixed_physical"; cfg.coup=0.05;
+      cfg.thermRev=true; cfg.thermRevRate=0.5; cfg.revMode="dynamic";
+      cfg.spatialRev=true; cfg.spatialRevMode="cluster"; cfg.spatialHeatMode="heat";
+      const nn=nNorm||cfg.pCntNorm, nr=nRev||cfg.pCntRev;
+      for(let i=0;i<nn;i++){const hot=i<nn/2;const temp=hot?8:1.5;const[vx,vy]=randVel(temp);const cx=W*0.15,cy=H*0.5;ps.push(createP(Math.max(6,Math.min(W/2-10,cx+(Math.random()-0.5)*70)),Math.max(6,Math.min(H-6,cy+(Math.random()-0.5)*60)),vx,vy,TYPE_A,SECTOR_NORMAL));}
+      for(let i=0;i<nr;i++){const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      break;
     }
     default: return makePreset("hot_cold",W,H,nNorm,nRev);
   }
+
+  cfg.ps = ps;
+  return cfg;
 }
 
 // ─── REVERSE PLAYBACK ──────────────────────────────────────────
@@ -614,13 +630,38 @@ export default function ThermoSim() {
     const s = S.current;
     const h = Math.round(simW * 0.65);
     const pr = makePreset(name, simW, h, s.pCntNorm, s.pCntRev);
-    s.ps=pr.ps; s.mode=pr.mode; s.rxn=pr.rxn; s.coup=pr.coup; s.walls=pr.walls;
-    s.frame=0; s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[]; s.rxnT=0;
-    s.revF=null; s.revI=0; s.lastP=name; s.run=false;
-    // Preset'ten termal reverse ve revMode parametreleri
-    s.thermRev = pr.thermRev || false;
-    s.spatialRev = pr.spatialRev || false;
-    if (pr.revMode) s.revMode = pr.revMode;
+
+    // Parçacıklar
+    s.ps = pr.ps;
+    s.frame = 0;
+    s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[];
+    s.rxnT = 0;
+    s.revF = null; s.revI = 0;
+    s.lastP = name; s.run = false;
+
+    // TÜM kontrol state'lerini preset'ten uygula
+    s.mode = pr.mode;
+    s.rxn = pr.rxn;
+    s.coup = pr.coup;
+    s.walls = pr.walls;
+    s.wallSolidity = pr.wallSolidity;
+    s.wallThermalPerm = pr.wallThermalPerm;
+    s.thermRev = pr.thermRev;
+    s.thermRevRate = pr.thermRevRate;
+    s.spatialRev = pr.spatialRev;
+    s.spatialRevRate = pr.spatialRevRate;
+    s.spatialRevMode = pr.spatialRevMode;
+    s.spatialHeatMode = pr.spatialHeatMode;
+    s.revMode = pr.revMode;
+
+    // Parçacık sayı slider'larını güncelle
+    s.pCntNorm = pr.pCntNorm;
+    s.pCntRev = pr.pCntRev;
+
+    // _wallSide temizle
+    for (const p of s.ps) delete p._wallSide;
+
+    // Reverse playback hazırla
     if (s.mode === "reverse" && s.revMode === "playback") {
       genReverse(s.ps, simW, h);
     }
@@ -761,10 +802,30 @@ export default function ThermoSim() {
   const modeLabels={normal:"Normal",reverse:"Ters",mixed_physical:"Karma Fiz.",mixed_cinematic:"Karma Sin."};
 
   const setMode=(m)=>{
-    s.mode=m;
-    // Her zaman yeniden üret
-    if(m==="reverse"&&s.revMode==="playback"){
-      genReverse(s.ps,simW,simH);
+    const old = s.mode;
+    s.mode = m;
+
+    // Parçacık sektörlerini moda göre dönüştür
+    if (m === "normal") {
+      // Tüm parçacıkları normal yap
+      for (const p of s.ps) p.sector = SECTOR_NORMAL;
+    } else if (m === "reverse") {
+      // Tüm parçacıkları reverse yap
+      for (const p of s.ps) p.sector = SECTOR_REVERSE;
+    } else if (m === "mixed_physical" || m === "mixed_cinematic") {
+      // Karma: eğer hepsi aynı sektördeyse yarı yarıya böl
+      const allSame = s.ps.every(p => p.sector === s.ps[0]?.sector);
+      if (allSame && s.ps.length > 1) {
+        const half = Math.floor(s.ps.length / 2);
+        for (let i = 0; i < s.ps.length; i++) {
+          s.ps[i].sector = i < half ? SECTOR_NORMAL : SECTOR_REVERSE;
+        }
+      }
+    }
+
+    // Reverse playback hazırla
+    if (m === "reverse" && s.revMode === "playback") {
+      genReverse(s.ps, simW, simH);
     }
     bump();
   };
@@ -784,7 +845,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v18</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v19</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
