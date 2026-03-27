@@ -458,107 +458,205 @@ function decoherence(ps,W,H){
 
 // ─── PRESETS ───────────────────────────────────────────────────
 // Her preset TÜM ilgili state alanlarını döner.
-// Eksik alan bırakılmaz — load fonksiyonu bunları doğrudan uygular.
+// Her preset HER ZAMAN nNorm kadar normal + nRev kadar ters parçacık üretir.
+// Preset sadece UZAMSAL DAĞILIM KALIBINI belirler.
 const PRESET_DEFAULTS = {
   mode:"normal", rxn:false, coup:0, walls:[],
   thermRev:false, thermRevRate:0.5,
   spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
   revMode:"dynamic", wallSolidity:1.0, wallThermalPerm:0.0,
-  pCntNorm:80, pCntRev:0, // Önerilen parçacık sayıları
+  pCntNorm:80, pCntRev:0,
 };
 
 function makePreset(name, W, H, nNorm, nRev){
   const ps=[];
-  // Preset kendi önerdiği sayıları kullanır, kullanıcı sayıları yedek
   let cfg = {...PRESET_DEFAULTS};
+  const nn = nNorm != null ? nNorm : 0;
+  const nr = nRev != null ? nRev : 0;
+
+  // Yardımcı: preset dağılım kalıbına göre normal + reverse parçacık üret
+  // pattern fonksiyonu (i, count, sector) → {x, y, vx, vy, ptype} döner
+  function addParticles(count, sector, patternFn) {
+    for (let i = 0; i < count; i++) {
+      const p = patternFn(i, count);
+      ps.push(createP(p.x, p.y, p.vx, p.vy, p.ptype || TYPE_A, sector));
+    }
+  }
 
   switch(name){
     case "hot_cold": {
-      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal";
-      const n=nNorm||cfg.pCntNorm;
-      for(let i=0;i<Math.floor(n/2);i++){const[vx,vy]=randVel(8);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy));}
-      for(let i=0;i<n-Math.floor(n/2);i++){const[vx,vy]=randVel(1);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy));}
+      cfg.pCntNorm=100; cfg.pCntRev=0;
+      // Dağılım: sol yarı sıcak, sağ yarı soğuk
+      const hotColdPattern = (i, count) => {
+        const hot = i < count / 2;
+        const [vx,vy] = randVel(hot ? 8 : 1);
+        return { x: hot ? Math.random()*(W/2-20)+10 : W/2+10+Math.random()*(W/2-20), y: Math.random()*(H-20)+10, vx, vy };
+      };
+      addParticles(nn, SECTOR_NORMAL, hotColdPattern);
+      addParticles(nr, SECTOR_REVERSE, hotColdPattern);
+      cfg.mode = nr>0 && nn===0 ? "reverse" : nr>0 ? "mixed_physical" : "normal";
+      cfg.coup = nr>0 && nn>0 ? 0.1 : 0;
       break;
     }
     case "reverse": {
-      cfg.pCntNorm=0; cfg.pCntRev=100; cfg.mode="reverse"; cfg.revMode="dynamic";
+      cfg.pCntNorm=0; cfg.pCntRev=100;
       cfg.spatialRev=true; cfg.spatialRevMode="cluster"; cfg.spatialHeatMode="heat";
-      const n=nRev||cfg.pCntRev;
-      for(let i=0;i<n;i++){const[vx,vy]=randVel(3);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      // Dağılım: rastgele, orta hız
+      const scatterPattern = (i, count) => {
+        const [vx,vy] = randVel(3);
+        return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy };
+      };
+      addParticles(nn, SECTOR_NORMAL, scatterPattern);
+      addParticles(nr, SECTOR_REVERSE, scatterPattern);
+      cfg.mode = nn>0 ? "mixed_physical" : "reverse";
+      cfg.coup = nn>0 ? 0.1 : 0;
+      cfg.revMode = "dynamic";
       break;
     }
     case "rxn_ab": {
-      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal"; cfg.rxn=true;
-      const n=nNorm||cfg.pCntNorm;
-      for(let i=0;i<Math.floor(n/2);i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A));}
-      for(let i=0;i<n-Math.floor(n/2);i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_B));}
+      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.rxn=true;
+      // Dağılım: rastgele, yarısı A yarısı B
+      const rxnPattern = (i, count) => {
+        const [vx,vy] = randVel(5);
+        return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy, ptype: i < count/2 ? TYPE_A : TYPE_B };
+      };
+      addParticles(nn, SECTOR_NORMAL, rxnPattern);
+      addParticles(nr, SECTOR_REVERSE, rxnPattern);
+      cfg.mode = nr>0 && nn===0 ? "reverse" : nr>0 ? "mixed_physical" : "normal";
+      cfg.coup = nr>0 && nn>0 ? 0.1 : 0;
       break;
     }
     case "mixed_w": {
-      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.mode="mixed_physical"; cfg.coup=0.1;
-      const nn=nNorm||cfg.pCntNorm, nr=nRev||cfg.pCntRev;
-      for(let i=0;i<nr;i++){const[vx,vy]=randVel(4);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
-      for(let i=0;i<nn;i++){const[vx,vy]=randVel(4);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
+      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.coup=0.1;
+      // Dağılım: reverse sol, normal sağ
+      addParticles(nr, SECTOR_REVERSE, () => {
+        const [vx,vy] = randVel(4);
+        return { x: Math.random()*(W/2-20)+10, y: Math.random()*(H-20)+10, vx, vy };
+      });
+      addParticles(nn, SECTOR_NORMAL, () => {
+        const [vx,vy] = randVel(4);
+        return { x: W/2+10+Math.random()*(W/2-20), y: Math.random()*(H-20)+10, vx, vy };
+      });
+      cfg.mode = "mixed_physical";
       break;
     }
     case "mixed_d": {
-      cfg.pCntNorm=80; cfg.pCntRev=40; cfg.mode="mixed_physical"; cfg.coup=0.6;
-      const nr=nRev||cfg.pCntRev, nn=nNorm||cfg.pCntNorm;
-      for(let i=0;i<nr;i++){const a=(2*Math.PI*i)/nr,r=30+Math.random()*40;const[vx,vy]=randVel(2);ps.push(createP(W/2+r*Math.cos(a),H/2+r*Math.sin(a),vx,vy,TYPE_A,SECTOR_REVERSE));}
-      for(let i=0;i<nn;i++){const[vx,vy]=randVel(6);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
+      cfg.pCntNorm=80; cfg.pCntRev=40; cfg.coup=0.6;
+      // Dağılım: reverse merkez halka, normal dağınık
+      addParticles(nr, SECTOR_REVERSE, (i, count) => {
+        const a=(2*Math.PI*i)/(count||1), r=30+Math.random()*40;
+        const [vx,vy] = randVel(2);
+        return { x: W/2+r*Math.cos(a), y: H/2+r*Math.sin(a), vx, vy };
+      });
+      addParticles(nn, SECTOR_NORMAL, () => {
+        const [vx,vy] = randVel(6);
+        return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy };
+      });
+      cfg.mode = "mixed_physical";
       break;
     }
     case "partition": {
-      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal";
+      cfg.pCntNorm=100; cfg.pCntRev=0;
       cfg.walls=[{x1:W/2,y1:0,x2:W/2,y2:H}]; cfg.wallSolidity=1.0;
-      const n=nNorm||cfg.pCntNorm;
-      for(let i=0;i<n;i++){const hot=i<n/2;const[vx,vy]=randVel(hot?7:1.5);ps.push(createP(hot?Math.random()*(W/2-20)+10:W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,hot?TYPE_A:TYPE_B));}
+      // Dağılım: sol sıcak, sağ soğuk (duvarla ayrılmış)
+      const partPattern = (i, count) => {
+        const hot = i < count/2;
+        const [vx,vy] = randVel(hot ? 7 : 1.5);
+        return { x: hot ? Math.random()*(W/2-20)+10 : W/2+10+Math.random()*(W/2-20), y: Math.random()*(H-20)+10, vx, vy, ptype: hot ? TYPE_A : TYPE_B };
+      };
+      addParticles(nn, SECTOR_NORMAL, partPattern);
+      addParticles(nr, SECTOR_REVERSE, partPattern);
+      cfg.mode = nr>0 && nn===0 ? "reverse" : nr>0 ? "mixed_physical" : "normal";
+      cfg.coup = nr>0 && nn>0 ? 0.1 : 0;
       break;
     }
     case "endo_exo": {
-      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.mode="normal"; cfg.rxn=true;
-      const n=nNorm||cfg.pCntNorm, q=Math.floor(n/4);
-      for(let i=0;i<q;i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_FUEL));}
-      for(let i=0;i<q;i++){const[vx,vy]=randVel(5);ps.push(createP(Math.random()*(W/2-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_OX));}
-      for(let i=0;i<n-2*q;i++){const[vx,vy]=randVel(7);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_AB));}
+      cfg.pCntNorm=100; cfg.pCntRev=0; cfg.rxn=true;
+      // Dağılım: sol FUEL+OX, sağ AB
+      const endoPattern = (i, count) => {
+        const q = Math.floor(count/4);
+        if (i < q) { const [vx,vy]=randVel(5); return { x:Math.random()*(W/2-20)+10, y:Math.random()*(H-20)+10, vx, vy, ptype:TYPE_FUEL }; }
+        if (i < 2*q) { const [vx,vy]=randVel(5); return { x:Math.random()*(W/2-20)+10, y:Math.random()*(H-20)+10, vx, vy, ptype:TYPE_OX }; }
+        const [vx,vy]=randVel(7); return { x:W/2+10+Math.random()*(W/2-20), y:Math.random()*(H-20)+10, vx, vy, ptype:TYPE_AB };
+      };
+      addParticles(nn, SECTOR_NORMAL, endoPattern);
+      addParticles(nr, SECTOR_REVERSE, (i, count) => {
+        const [vx,vy]=randVel(5);
+        return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy, ptype: Math.random()<0.5?TYPE_A:TYPE_B };
+      });
+      cfg.mode = nr>0 && nn===0 ? "reverse" : nr>0 ? "mixed_physical" : "normal";
+      cfg.coup = nr>0 && nn>0 ? 0.1 : 0;
       break;
     }
     case "therm_rev": {
-      cfg.pCntNorm=0; cfg.pCntRev=100; cfg.mode="reverse"; cfg.revMode="dynamic";
+      cfg.pCntNorm=0; cfg.pCntRev=100;
       cfg.thermRev=true; cfg.thermRevRate=0.5;
-      const n=nRev||cfg.pCntRev;
-      for(let i=0;i<n;i++){const temp=4+(Math.random()-0.5)*2;const[vx,vy]=randVel(temp);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      // Dağılım: homojen sıcaklık, rastgele
+      const thermPattern = (i, count) => {
+        const temp=4+(Math.random()-0.5)*2; const [vx,vy]=randVel(temp);
+        return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy };
+      };
+      addParticles(nn, SECTOR_NORMAL, thermPattern);
+      addParticles(nr, SECTOR_REVERSE, thermPattern);
+      cfg.mode = nn>0 ? "mixed_physical" : "reverse";
+      cfg.coup = nn>0 ? 0.05 : 0;
+      cfg.revMode = "dynamic";
       break;
     }
     case "therm_mixed": {
-      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.mode="mixed_physical"; cfg.coup=0.05;
+      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.coup=0.05;
       cfg.thermRev=true; cfg.thermRevRate=0.5; cfg.revMode="dynamic";
-      const nn=nNorm||cfg.pCntNorm, nr=nRev||cfg.pCntRev;
-      for(let i=0;i<nn;i++){const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);ps.push(createP(Math.random()*(W/2-30)+15,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_NORMAL));}
-      for(let i=0;i<nr;i++){const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);ps.push(createP(W/2+15+Math.random()*(W/2-30),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      // Dağılım: normal sol, reverse sağ, homojen sıcaklık
+      addParticles(nn, SECTOR_NORMAL, () => {
+        const temp=4+(Math.random()-0.5)*1; const [vx,vy]=randVel(temp);
+        return { x: Math.random()*(W/2-30)+15, y: Math.random()*(H-20)+10, vx, vy };
+      });
+      addParticles(nr, SECTOR_REVERSE, () => {
+        const temp=4+(Math.random()-0.5)*1; const [vx,vy]=randVel(temp);
+        return { x: W/2+15+Math.random()*(W/2-30), y: Math.random()*(H-20)+10, vx, vy };
+      });
+      cfg.mode = "mixed_physical";
       break;
     }
     case "full_rev": {
-      cfg.pCntNorm=0; cfg.pCntRev=100; cfg.mode="reverse"; cfg.revMode="dynamic";
+      cfg.pCntNorm=0; cfg.pCntRev=100;
       cfg.thermRev=true; cfg.thermRevRate=0.5;
       cfg.spatialRev=true; cfg.spatialRevMode="cluster"; cfg.spatialHeatMode="heat";
-      const n=nRev||cfg.pCntRev;
-      for(let i=0;i<n;i++){const temp=4+(Math.random()-0.5)*1.5;const[vx,vy]=randVel(temp);ps.push(createP(Math.random()*(W-20)+10,Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      // Dağılım: homojen, dağınık
+      const fullRevPattern = (i, count) => {
+        const temp=4+(Math.random()-0.5)*1.5; const [vx,vy]=randVel(temp);
+        return { x: Math.random()*(W-20)+10, y: Math.random()*(H-20)+10, vx, vy };
+      };
+      addParticles(nn, SECTOR_NORMAL, fullRevPattern);
+      addParticles(nr, SECTOR_REVERSE, fullRevPattern);
+      cfg.mode = nn>0 ? "mixed_physical" : "reverse";
+      cfg.coup = nn>0 ? 0.05 : 0;
+      cfg.revMode = "dynamic";
       break;
     }
     case "full_mixed": {
-      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.mode="mixed_physical"; cfg.coup=0.05;
+      cfg.pCntNorm=60; cfg.pCntRev=60; cfg.coup=0.05;
       cfg.thermRev=true; cfg.thermRevRate=0.5; cfg.revMode="dynamic";
       cfg.spatialRev=true; cfg.spatialRevMode="cluster"; cfg.spatialHeatMode="heat";
-      const nn=nNorm||cfg.pCntNorm, nr=nRev||cfg.pCntRev;
-      for(let i=0;i<nn;i++){const hot=i<nn/2;const temp=hot?8:1.5;const[vx,vy]=randVel(temp);const cx=W*0.15,cy=H*0.5;ps.push(createP(Math.max(6,Math.min(W/2-10,cx+(Math.random()-0.5)*70)),Math.max(6,Math.min(H-6,cy+(Math.random()-0.5)*60)),vx,vy,TYPE_A,SECTOR_NORMAL));}
-      for(let i=0;i<nr;i++){const temp=4+(Math.random()-0.5)*1;const[vx,vy]=randVel(temp);ps.push(createP(W/2+10+Math.random()*(W/2-20),Math.random()*(H-20)+10,vx,vy,TYPE_A,SECTOR_REVERSE));}
+      // Dağılım: normal sol küme (sıcak-soğuk), reverse sağ dağınık
+      addParticles(nn, SECTOR_NORMAL, (i, count) => {
+        const hot=i<count/2; const temp=hot?8:1.5; const [vx,vy]=randVel(temp);
+        const cx=W*0.15, cy=H*0.5;
+        return { x: Math.max(6,Math.min(W/2-10,cx+(Math.random()-0.5)*70)), y: Math.max(6,Math.min(H-6,cy+(Math.random()-0.5)*60)), vx, vy };
+      });
+      addParticles(nr, SECTOR_REVERSE, () => {
+        const temp=4+(Math.random()-0.5)*1; const [vx,vy]=randVel(temp);
+        return { x: W/2+10+Math.random()*(W/2-20), y: Math.random()*(H-20)+10, vx, vy };
+      });
+      cfg.mode = "mixed_physical";
       break;
     }
     default: return makePreset("hot_cold",W,H,nNorm,nRev);
   }
 
   cfg.ps = ps;
+  cfg.pCntNorm = nn;
+  cfg.pCntRev = nr;
   return cfg;
 }
 
@@ -669,6 +767,47 @@ export default function ThermoSim() {
   }, [simW, genReverse]);
 
   useEffect(() => { load("hot_cold"); }, [load]);
+
+  // ─── SOFT RESET: Sadece parçacık dağılımını yenile, ayarları koru ──
+  const softReset = useCallback(() => {
+    const s = S.current;
+    const h = Math.round(simW * 0.65);
+    // Mevcut ayarları sakla
+    const saved = {
+      mode: s.mode, rxn: s.rxn, coup: s.coup,
+      walls: s.walls, wallSolidity: s.wallSolidity, wallThermalPerm: s.wallThermalPerm,
+      thermRev: s.thermRev, thermRevRate: s.thermRevRate,
+      spatialRev: s.spatialRev, spatialRevRate: s.spatialRevRate,
+      spatialRevMode: s.spatialRevMode, spatialHeatMode: s.spatialHeatMode,
+      revMode: s.revMode, rest: s.rest, eam: s.eam, isrxn: s.isrxn,
+      spd: s.spd, spdRaw: s.spdRaw,
+      showVel: s.showVel, showTBg: s.showTBg, showEMap: s.showEMap,
+    };
+
+    // Preset'ten sadece parçacıkları al (mevcut sayılarla)
+    const pr = makePreset(s.lastP || "hot_cold", simW, h, s.pCntNorm, s.pCntRev);
+    s.ps = pr.ps;
+
+    // Simülasyon sayaçlarını sıfırla
+    s.frame = 0;
+    s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[];
+    s.rxnT = 0;
+    s.revF = null; s.revI = 0;
+    s.run = false;
+    s.spdAcc = 0;
+
+    // Saklanan ayarları geri yükle (ayarlar DEĞİŞMEZ)
+    Object.assign(s, saved);
+
+    // _wallSide temizle
+    for (const p of s.ps) delete p._wallSide;
+
+    // Reverse playback hazırla
+    if (s.mode === "reverse" && s.revMode === "playback") {
+      genReverse(s.ps, simW, h);
+    }
+    bump();
+  }, [simW, genReverse]);
 
   // ─── Animation loop ─────────────────────────────────────────
   useEffect(() => {
@@ -870,7 +1009,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v20</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v21</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -900,8 +1039,12 @@ export default function ThermoSim() {
         }} style={{flex:.6,padding:"10px 0",borderRadius:6,border:"none",background:"#1e1e2e",color:"#889",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}>
           Adım→
         </button>
+        <button onClick={()=>softReset()}
+          style={{flex:.5,padding:"10px 0",borderRadius:6,border:"none",background:"#1a2a10",color:"#ac0",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}
+          title="Parçacıkları yenile (ayarları koru)">🔄</button>
         <button onClick={()=>load(s.lastP||"hot_cold")}
-          style={{flex:.6,padding:"10px 0",borderRadius:6,border:"none",background:"#2a2010",color:"#c90",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}>↺</button>
+          style={{flex:.5,padding:"10px 0",borderRadius:6,border:"none",background:"#2a1010",color:"#c66",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}
+          title="Varsayılan ayarlara dön">⏪</button>
       </div>
 
       <div style={{display:"flex",gap:3,padding:"0 8px 4px"}}>
