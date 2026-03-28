@@ -241,7 +241,50 @@ function physicsStep(ps, W, H, dt, mode, rest, coupling, walls, thermRev, thermR
   enforceWalls(ps, walls, wallSolidity, d);
 }
 
-// ─── ANTİ-FOURİER TERMAL REVERSE (v7 — Gerçek Cascade) ────────
+// ─── SPATIAL HASH GRID (Ortak) ─────────────────────────────────
+/*
+ * O(N²) brute-force çift taramalarını O(N) ortalamaya düşürür.
+ * physicsStep zaten benzer grid kullanıyor (cs=16).
+ * antiFourierStep (radius=40) ve rxnStep (radius=12) için
+ * aynı yaklaşımı uyguluyoruz.
+ */
+function buildSpatialGrid(ps, cellSize, filterFn) {
+  const grid = {};
+  for (let i = 0; i < ps.length; i++) {
+    if (filterFn && !filterFn(ps[i])) continue;
+    const cx = Math.floor(ps[i].x / cellSize);
+    const cy = Math.floor(ps[i].y / cellSize);
+    const k = cx + "," + cy;
+    (grid[k] || (grid[k] = [])).push(i);
+  }
+  return grid;
+}
+
+function forEachNearbyPair(grid, cellSize, radius, callback) {
+  const radiusSq = radius * radius;
+  const span = Math.ceil(radius / cellSize);
+  const visited = new Set();
+  for (const key in grid) {
+    const [cx, cy] = key.split(",").map(Number);
+    for (let dx = -span; dx <= span; dx++) {
+      for (let dy = -span; dy <= span; dy++) {
+        const nk = (cx + dx) + "," + (cy + dy);
+        if (!grid[nk]) continue;
+        for (const i of grid[key]) {
+          for (const j of grid[nk]) {
+            if (i >= j) continue;
+            const pk = i < j ? i + "," + j : j + "," + i;
+            if (visited.has(pk)) continue;
+            visited.add(pk);
+            callback(i, j, radiusSq);
+          }
+        }
+      }
+    }
+  }
+}
+
+// ─── ANTİ-FOURİER TERMAL REVERSE ──────────────────────────────
 /*
  * Çarpışma bazlı + post-step cascade.
  * Sıcak reverse cisim soğuktan enerji ÇALAR → ısı tek cisme toplanır.
@@ -255,16 +298,15 @@ function antiCollisionFourier(a, b, rate, clamp) {
   const diff = keA - keB;
   if (Math.abs(diff) < 0.001) return;
   let transfer = diff * rate * 0.5;
-  // Enerji sınırı: clamp>0 → soğuk tarafın enerjisinin cl oranı max
-  const cl = typeof clamp === "number" ? clamp : 0.9;
-  if (cl > 0.001) {
+  // 0=tam koruma (transfer yok), 1=sınırsız
+  const cl = typeof clamp === "number" ? clamp : 0.5;
+  if (cl < 0.001) return;
+  if (cl <= 1.0) {
     if (transfer > 0) { transfer = Math.min(transfer, keB * cl); }
     else { transfer = Math.max(transfer, -keA * cl); }
   }
   if (Math.abs(transfer) < 0.0001) return;
-  const newKeA = keA + transfer;
-  const newKeB = keB - transfer;
-  // NaN koruması: negatif enerji durumunda hızı sıfıra yaklaştır
+  const newKeA = keA + transfer, newKeB = keB - transfer;
   const factorA = newKeA > 0 ? Math.sqrt(newKeA / Math.max(keA, 0.001)) : 0.01;
   const factorB = newKeB > 0 ? Math.sqrt(newKeB / Math.max(keB, 0.001)) : 0.01;
   a.vx *= Math.min(factorA, 5.0); a.vy *= Math.min(factorA, 5.0);
@@ -273,34 +315,33 @@ function antiCollisionFourier(a, b, rate, clamp) {
 
 function antiFourierStep(ps, W, H, dt, rate, clamp) {
   if (rate < 0.001) return;
-  const rev = [];
-  for (let i = 0; i < ps.length; i++) { if (ps[i].sector === SECTOR_REVERSE) rev.push(i); }
-  if (rev.length < 2) return;
-  const radius = 40, radiusSq = radius * radius;
-  const cl = typeof clamp === "number" ? clamp : 0.9;
-  for (let ii = 0; ii < rev.length; ii++) {
-    const i = rev[ii], a = ps[i];
-    for (let jj = ii + 1; jj < rev.length; jj++) {
-      const j = rev[jj], b = ps[j], dx = b.x - a.x, dy = b.y - a.y;
-      if (dx * dx + dy * dy > radiusSq) continue;
-      const keA = a.vx * a.vx + a.vy * a.vy;
-      const keB = b.vx * b.vx + b.vy * b.vy;
-      const diff = keA - keB;
-      if (Math.abs(diff) < 0.001) continue;
-      let transfer = diff * rate * dt;
-      if (cl > 0.001) {
-        if (transfer > 0) { transfer = Math.min(transfer, keB * cl); }
-        else { transfer = Math.max(transfer, -keA * cl); }
-      }
-      if (Math.abs(transfer) < 0.0001) continue;
-      const newKeA = keA + transfer, newKeB = keB - transfer;
-      // NaN koruması: negatif enerji durumunda hızı sıfıra yaklaştır
-      const factorA = newKeA > 0 ? Math.sqrt(newKeA / Math.max(keA, 0.0001)) : 0.01;
-      const factorB = newKeB > 0 ? Math.sqrt(newKeB / Math.max(keB, 0.0001)) : 0.01;
-      a.vx *= Math.min(factorA, 3.0); a.vy *= Math.min(factorA, 3.0);
-      b.vx *= factorB; b.vy *= factorB;
+  const cl = typeof clamp === "number" ? clamp : 0.5;
+  if (cl < 0.001) return;
+  const radius = 40;
+  // Grid: sadece reverse parçacıklar
+  const grid = buildSpatialGrid(ps, radius, p => p.sector === SECTOR_REVERSE);
+  const radiusSq = radius * radius;
+
+  forEachNearbyPair(grid, radius, radius, (i, j, rSq) => {
+    const a = ps[i], b = ps[j];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (dx * dx + dy * dy > rSq) return;
+    const keA = a.vx * a.vx + a.vy * a.vy;
+    const keB = b.vx * b.vx + b.vy * b.vy;
+    const diff = keA - keB;
+    if (Math.abs(diff) < 0.001) return;
+    let transfer = diff * rate * dt;
+    if (cl <= 1.0) {
+      if (transfer > 0) { transfer = Math.min(transfer, keB * cl); }
+      else { transfer = Math.max(transfer, -keA * cl); }
     }
-  }
+    if (Math.abs(transfer) < 0.0001) return;
+    const newKeA = keA + transfer, newKeB = keB - transfer;
+    const factorA = newKeA > 0 ? Math.sqrt(newKeA / Math.max(keA, 0.0001)) : 0.01;
+    const factorB = newKeB > 0 ? Math.sqrt(newKeB / Math.max(keB, 0.0001)) : 0.01;
+    a.vx *= Math.min(factorA, 3.0); a.vy *= Math.min(factorA, 3.0);
+    b.vx *= factorB; b.vy *= factorB;
+  });
 }
 
 // ─── ANTİ-DİFÜZYON (UZAMSAL TERS ENTROPİ — İKİ MOD) ──────────
@@ -408,39 +449,33 @@ function rxnStep(ps,dt,mode,rr,on,eam,isr){
   if(!on) return 0;
   let rxnCount = 0;
 
-  // ── İKİ PARÇACIKLI REAKSİYONLAR ──
-  // Önce tüm uygun çiftleri topla, sonra uygula (splice sırası bozmasın)
+  // ── İKİ PARÇACIKLI REAKSİYONLAR (Grid-optimized) ──
   const toReactBin = [];
   const usedIdx = new Set();
+  const rrSq = rr * rr;
+  const grid = buildSpatialGrid(ps, rr, null);
 
-  for(let i=0;i<ps.length;i++){
-    if(usedIdx.has(i)) continue;
-    for(let j=i+1;j<ps.length;j++){
-      if(usedIdx.has(j)) continue;
-      const a=ps[i],b=ps[j],dx=b.x-a.x,dy=b.y-a.y;
-      if(dx*dx+dy*dy>rr*rr) continue;
-      if(a.sector!==b.sector&&!isr) continue;
-      for(const rule of RXNS){
-        if(!rule.bin) continue;
-        const t=[a.ptype,b.ptype];
-        if(!((t[0]===rule.r[0]&&t[1]===rule.r[1])||(t[0]===rule.r[1]&&t[1]===rule.r[0]))) continue;
-        // Sıcaklık: çiftin ortalama kinetik enerjisi (tutarlı alt sınır)
-        const temp=Math.max(0.5*((a.vx*a.vx+a.vy*a.vy)+(b.vx*b.vx+b.vy*b.vy))*0.5, 0.01);
-        const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
-        // Reverse: aynı aktivasyon bariyeri, sadece kf/kb ile yönsel tercih
-        // Enerji bariyeri (transition state) termodinamik oktan bağımsızdır
-        const rawRate=isR
-          ?(rule.kb>0.001? rule.kb*Math.exp(-rule.ea*eam/temp) : 0)
-          : rule.kf*Math.exp(-rule.ea*eam/temp);
-        // Poisson tabanlı olasılık: 1 - exp(-rate*dt)
-        const prob = 1 - Math.exp(-rawRate * dt);
-        if(Math.random() > prob) continue;
-        toReactBin.push({i, j, rule, sec:a.sector});
-        usedIdx.add(i); usedIdx.add(j);
-        break; // Bu çift için bir kural yeterli
-      }
+  forEachNearbyPair(grid, rr, rr, (i, j, rSq) => {
+    if(usedIdx.has(i) || usedIdx.has(j)) return;
+    const a=ps[i],b=ps[j],dx=b.x-a.x,dy=b.y-a.y;
+    if(dx*dx+dy*dy>rrSq) return;
+    if(a.sector!==b.sector&&!isr) return;
+    for(const rule of RXNS){
+      if(!rule.bin) continue;
+      const t=[a.ptype,b.ptype];
+      if(!((t[0]===rule.r[0]&&t[1]===rule.r[1])||(t[0]===rule.r[1]&&t[1]===rule.r[0]))) continue;
+      const temp=Math.max(0.5*((a.vx*a.vx+a.vy*a.vy)+(b.vx*b.vx+b.vy*b.vy))*0.5, 0.01);
+      const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
+      const rawRate=isR
+        ?(rule.kb>0.001? rule.kb*Math.exp(-rule.ea*eam/temp) : 0)
+        : rule.kf*Math.exp(-rule.ea*eam/temp);
+      const prob = 1 - Math.exp(-rawRate * dt);
+      if(Math.random() > prob) return;
+      toReactBin.push({i, j, rule, sec:a.sector});
+      usedIdx.add(i); usedIdx.add(j);
+      return; // Bu çift için bir kural yeterli
     }
-  }
+  });
 
   // İkili reaksiyonları uygula (sondan başa sil ki indeksler bozulmasın)
   // Önce silme indekslerini topla, sonra ürünleri ekle
@@ -557,7 +592,7 @@ function decoherence(ps,W,H){
 // Preset sadece UZAMSAL DAĞILIM KALIBINI belirler.
 const PRESET_DEFAULTS = {
   mode:"normal", rxn:false, coup:0, walls:[],
-  thermRev:false, thermRevRate:0.5, thermClamp:0.9,
+  thermRev:false, thermRevRate:0.5, thermClamp:0.5,
   spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
   revMode:"dynamic", wallSolidity:1.0, wallThermalPerm:0.0,
   pCntNorm:80, pCntRev:0,
@@ -806,10 +841,10 @@ export default function ThermoSim() {
     rxn:false, isrxn:false, eam:1, spd:1,
     walls:[], wallSolidity:1.0, wallThermalPerm:0.0, showVel:false, showTBg:true, showEMap:false,
     revF:null, revI:0, revLoop:true, revMode:"playback",
-    thermRev:false, thermRevRate:0.5, thermClamp:0.9,
+    thermRev:false, thermRevRate:0.5, thermClamp:0.5,
     spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
     sH:[], sN:[], sR:[], eH:[], kH:[],
-    rxnT:0, pCntNorm:60, pCntRev:60, lastP:"hot_cold", spdAcc:0, spdRaw:500
+    rxnT:0, pCntNorm:60, pCntRev:60, lastP:"hot_cold", spdAcc:0, spdRaw:500, timeReversed:false
   });
   const raf = useRef(null);
   const [, tick] = useState(0);
@@ -857,7 +892,7 @@ export default function ThermoSim() {
     s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[];
     s.rxnT = 0;
     s.revF = null; s.revI = 0;
-    s.lastP = name; s.run = false;
+    s.lastP = name; s.run = false; s.timeReversed = false;
 
     // TÜM kontrol state'lerini preset'ten uygula
     s.mode = pr.mode;
@@ -920,6 +955,7 @@ export default function ThermoSim() {
     s.revF = null; s.revI = 0;
     s.run = false;
     s.spdAcc = 0;
+    s.timeReversed = false;
 
     // Saklanan ayarları geri yükle (ayarlar DEĞİŞMEZ)
     Object.assign(s, saved);
@@ -1130,7 +1166,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v27</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v30</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1164,6 +1200,20 @@ export default function ThermoSim() {
           style={{flex:.5,padding:"10px 0",borderRadius:6,border:"none",background:"#1a2a10",color:"#ac0",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}
           title="Parçacıkları yenile (ayarları koru)">🔄</button>
         <button onClick={()=>{
+          // ⏳ Zaman tersleme: tüm hızları ters çevir (Hamiltonian t→-t)
+          const s = S.current;
+          for(const p of s.ps){p.vx*=-1;p.vy*=-1;}
+          s.timeReversed = !s.timeReversed;
+          bump();
+        }}
+          style={{flex:.5,padding:"10px 0",borderRadius:6,border:"none",
+            background:S.current.timeReversed?"#302050":"#1a1a30",
+            color:S.current.timeReversed?"#d8a0ff":"#88b",
+            fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer",
+            boxShadow:S.current.timeReversed?"0 0 8px #8040c0":"none"}}
+          title={S.current.timeReversed?"Zaman geriye akıyor — tekrar bas ileri dönsün":"Zamanı tersine çevir"}>
+          {S.current.timeReversed?"⏳ Geri":"⏳ İleri"}</button>
+        <button onClick={()=>{
           // ⏪ Snapshot'a dön: senaryo+mod seçiminden sonraki ayar durumuna sıfırla
           const s = S.current;
           const snap = s._snapshot;
@@ -1183,7 +1233,7 @@ export default function ThermoSim() {
           const pr = makePreset(snap.lastP, simW, h, snap.pCntNorm, snap.pCntRev);
           s.ps = pr.ps;
           s.frame=0; s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[]; s.rxnT=0;
-          s.revF=null; s.revI=0; s.run=false; s.spdAcc=0;
+          s.revF=null; s.revI=0; s.run=false; s.spdAcc=0; s.timeReversed=false;
           for(const p of s.ps) delete p._wallSide;
           // Mod'u snapshot'tan yeniden uygula (sektör dönüşümü)
           if(snap.mode!==pr.mode) setMode(snap.mode);
@@ -1265,8 +1315,8 @@ export default function ThermoSim() {
           <Sl label="Ters ◆" value={s.pCntRev} min={0} max={200} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntRev=v;bump();}}/>
           <div style={{fontSize:8,color:"#556",marginBottom:4}}>Toplam: {s.pCntNorm+s.pCntRev} parçacık (değişiklik sıfırlamada uygulanır)</div>
           <Sl label="Elastiklik" value={s.rest} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.rest=v;bump();}}/>
-          <Sl label="Kuplaj κ" value={s.coup} min={0} max={1} step={.05} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
-          <Sl label="Ea çarpanı" value={s.eam} min={0} max={3} step={.1} fmt={v=>v.toFixed(1)} onChange={v=>{s.eam=v;bump();}}/>
+          <Sl label="Kuplaj κ" value={s.coup} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
+          <Sl label="Ea çarpanı" value={s.eam} min={0} max={5} step={.1} fmt={v=>v.toFixed(1)} onChange={v=>{s.eam=v;bump();}}/>
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
             <Tg label="Reaksiyonlar" v={s.rxn} set={v=>{s.rxn=v;if(v)seedReactants(s.ps);bump();}}/>
             <Tg label="Termal Ters ⚡" v={s.thermRev} set={v=>{s.thermRev=v;bump();}}/>
@@ -1279,17 +1329,20 @@ export default function ThermoSim() {
           {s.thermRev&&(
             <div style={{marginTop:6}}>
               <Sl label="Anti-Fourier şiddeti" value={s.thermRevRate} min={0} max={1.0} step={.02} fmt={v=>v.toFixed(2)} onChange={v=>{s.thermRevRate=v;bump();}}/>
-              <Sl label="Enerji aktarım sınırı" value={s.thermClamp} min={0} max={1} step={.01} fmt={v=>{
-                if(v<=0) return "0.00 (sınırsız)";
-                if(v>=1) return "1.00 (tam koruma)";
+              <Sl label="Enerji aktarım oranı" value={s.thermClamp} min={0} max={1.1} step={.01} fmt={v=>{
+                if(v<=0) return "0.00 (tam koruma)";
+                if(v>1.0) return "∞ (sınırsız)";
+                if(v>=1) return "1.00 (tam transfer)";
                 return v.toFixed(2);
               }} onChange={v=>{s.thermClamp=v;bump();}}/>
               <div style={{fontSize:8,color:"#665",marginTop:2}}>
                 {s.thermClamp<=0
-                  ?"Sınırsız: enerji transferi kısıtlanmaz, negatif enerji mümkün"
-                  :s.thermClamp>=0.9
-                    ?"Güvenli: soğuk cismin enerjisinin en fazla %"+(s.thermClamp*100).toFixed(0)+"'i çalınır"
-                    :"Gevşek: soğuk cismin enerjisinin en fazla %"+(s.thermClamp*100).toFixed(0)+"'i çalınır"}
+                  ?"Tam koruma: enerji transferi engellenir"
+                  :s.thermClamp>1.0
+                    ?"Sınırsız: clamp devre dışı, tam agresif cascade"
+                  :s.thermClamp>=1
+                    ?"Tam transfer: soğuk cismin tüm enerjisi çalınabilir"
+                    :"Soğuk cismin enerjisinin en fazla %"+(s.thermClamp*100).toFixed(0)+"'i çalınır"}
               </div>
             </div>
           )}
@@ -1307,7 +1360,7 @@ export default function ThermoSim() {
                   💥 Dağılma
                 </button>
               </div>
-              <Sl label="Anti-difüzyon şiddeti" value={s.spatialRevRate} min={0} max={1} step={.05} fmt={v=>v.toFixed(2)} onChange={v=>{s.spatialRevRate=v;bump();}}/>
+              <Sl label="Anti-difüzyon şiddeti" value={s.spatialRevRate} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.spatialRevRate=v;bump();}}/>
               <div style={{fontSize:8,color:"#778",marginTop:6,marginBottom:3}}>Termal etki:</div>
               <div style={{display:"flex",gap:3}}>
                 <button onClick={()=>{s.spatialHeatMode="heat";bump();}}
