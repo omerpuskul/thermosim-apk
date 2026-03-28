@@ -984,6 +984,9 @@ export default function ThermoSim() {
     // Saklanan ayarları geri yükle (ayarlar DEĞİŞMEZ)
     Object.assign(s, saved);
 
+    // Reaksiyon açıksa reaktan türlerini ekle
+    if (s.rxn) seedReactants(s.ps);
+
     // _wallSide temizle
     for (const p of s.ps) delete p._wallSide;
 
@@ -1203,7 +1206,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v36</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v37</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1271,6 +1274,7 @@ export default function ThermoSim() {
           s.ps = pr.ps;
           s.frame=0; s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[]; s.rxnT=0;
           s.revF=null; s.revI=0; s.run=false; s.spdAcc=0; s.timeReversed=false;
+          if(s.rxn) seedReactants(s.ps);
           for(const p of s.ps) delete p._wallSide;
           // Mod'u snapshot'tan yeniden uygula (sektör dönüşümü)
           if(snap.mode!==pr.mode) setMode(snap.mode);
