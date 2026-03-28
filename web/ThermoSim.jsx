@@ -50,16 +50,15 @@ function createP(x,y,vx,vy,pt=TYPE_A,sec=SECTOR_NORMAL,mass=1,r=3.5) {
  * sıcak taraftaki parçacıklar yavaşlatılır, soğuk taraftakiler
  * hızlandırılır. Böylece ısı duvardan "iletilir" ama madde geçmez.
  */
-function wallThermalTransfer(ps, walls, dt, thermalPerm) {
+function wallThermalTransfer(ps, walls, dt, thermalPerm, timeRev) {
   if (!walls || walls.length === 0 || thermalPerm < 0.001) return;
 
   for (const w of walls) {
     if (Math.abs(w.x1 - w.x2) < 2) {
       const wx = (w.x1 + w.x2) / 2;
       const miny = Math.min(w.y1, w.y2), maxy = Math.max(w.y1, w.y2);
-      const proximity = 60; // Duvardan bu mesafedeki parçacıklar etkilenir
+      const proximity = 60;
 
-      // İki taraftaki parçacıkları topla
       const left = [], right = [];
       for (const p of ps) {
         if (p.y < miny - p.radius || p.y > maxy + p.radius) continue;
@@ -71,7 +70,6 @@ function wallThermalTransfer(ps, walls, dt, thermalPerm) {
 
       if (left.length === 0 || right.length === 0) continue;
 
-      // Ortalama KE hesapla
       let keL = 0, keR = 0;
       for (const p of left) keL += p.vx * p.vx + p.vy * p.vy;
       for (const p of right) keR += p.vx * p.vx + p.vy * p.vy;
@@ -81,14 +79,12 @@ function wallThermalTransfer(ps, walls, dt, thermalPerm) {
       const diff = keL - keR;
       if (Math.abs(diff) < 0.01) continue;
 
-      // Transfer miktarı: farkın thermalPerm * dt oranında
-      const transfer = diff * thermalPerm * dt * 2;
+      // timeRev: transfer yönünü ters çevir
+      const transfer = diff * thermalPerm * dt * 2 * (timeRev ? -1 : 1);
 
-      // Sol taraf sıcaksa: sol yavaşlar, sağ hızlanır (veya tersi)
       const scaleL = Math.sqrt(Math.max((keL - transfer / left.length) / Math.max(keL, 0.001), 0.1));
       const scaleR = Math.sqrt(Math.max((keR + transfer / right.length) / Math.max(keR, 0.001), 0.1));
 
-      // Soft clamp
       const clL = Math.max(0.9, Math.min(1.1, scaleL));
       const clR = Math.max(0.9, Math.min(1.1, scaleR));
 
@@ -144,7 +140,7 @@ function enforceWalls(ps, walls, wallSolidity, d) {
 }
 
 // ─── PHYSICS ───────────────────────────────────────────────────
-function physicsStep(ps, W, H, dt, mode, rest, coupling, walls, thermRev, thermRevRate, wallSolidity, thermClamp) {
+function physicsStep(ps, W, H, dt, mode, rest, coupling, walls, thermRev, thermRevRate, wallSolidity, thermClamp, timeReversed) {
   const isRev = mode==="reverse"||mode==="mixed_physical"||mode==="mixed_cinematic";
   if(isRev) for(const p of ps) if(p.sector===SECTOR_REVERSE){p.vx*=-1;p.vy*=-1;}
 
@@ -210,7 +206,7 @@ function physicsStep(ps, W, H, dt, mode, rest, coupling, walls, thermRev, thermR
         b.vx+=(imp*nx)/b.mass;b.vy+=(imp*ny)/b.mass;
         if(e<1){const loss=.5*imp*dvn*(1-e*e)*tf;a.energy+=loss*b.mass/tm;b.energy+=loss*a.mass/tm;}
         if(thermRev && thermRevRate > 0.001 && a.sector===SECTOR_REVERSE && b.sector===SECTOR_REVERSE){
-          antiCollisionFourier(a, b, thermRevRate, thermClamp);
+          antiCollisionFourier(a, b, thermRevRate, thermClamp, timeReversed);
         }
       }
     }
@@ -290,15 +286,15 @@ function forEachNearbyPair(grid, cellSize, radius, callback) {
  * Sıcak reverse cisim soğuktan enerji ÇALAR → ısı tek cisme toplanır.
  * rate=1 → tam cascade.
  */
-function antiCollisionFourier(a, b, rate, clamp) {
+function antiCollisionFourier(a, b, rate, clamp, timeRev) {
   if (rate < 0.001) return;
   if (a.sector !== SECTOR_REVERSE || b.sector !== SECTOR_REVERSE) return;
   const keA = a.vx * a.vx + a.vy * a.vy;
   const keB = b.vx * b.vx + b.vy * b.vy;
-  const diff = keA - keB;
+  // Zaman tersinde: sıcak→soğuk (normal Fourier), normal: soğuk→sıcak (anti-Fourier)
+  const diff = timeRev ? -(keA - keB) : (keA - keB);
   if (Math.abs(diff) < 0.001) return;
   let transfer = diff * rate * 0.5;
-  // 0=tam koruma (transfer yok), 1=sınırsız
   const cl = typeof clamp === "number" ? clamp : 0.5;
   if (cl < 0.001) return;
   if (cl <= 1.0) {
@@ -313,12 +309,11 @@ function antiCollisionFourier(a, b, rate, clamp) {
   b.vx *= factorB; b.vy *= factorB;
 }
 
-function antiFourierStep(ps, W, H, dt, rate, clamp) {
+function antiFourierStep(ps, W, H, dt, rate, clamp, timeRev) {
   if (rate < 0.001) return;
   const cl = typeof clamp === "number" ? clamp : 0.5;
   if (cl < 0.001) return;
   const radius = 40;
-  // Grid: sadece reverse parçacıklar
   const grid = buildSpatialGrid(ps, radius, p => p.sector === SECTOR_REVERSE);
   const radiusSq = radius * radius;
 
@@ -328,7 +323,8 @@ function antiFourierStep(ps, W, H, dt, rate, clamp) {
     if (dx * dx + dy * dy > rSq) return;
     const keA = a.vx * a.vx + a.vy * a.vy;
     const keB = b.vx * b.vx + b.vy * b.vy;
-    const diff = keA - keB;
+    // Zaman tersinde: normal Fourier (sıcak→soğuk)
+    const diff = timeRev ? -(keA - keB) : (keA - keB);
     if (Math.abs(diff) < 0.001) return;
     let transfer = diff * rate * dt;
     if (cl <= 1.0) {
@@ -358,13 +354,18 @@ function antiFourierStep(ps, W, H, dt, rate, clamp) {
  *
  * Her iki mod da pozisyon bazlıdır (v→-v trick'inden bağımsız).
  */
-function antiDiffusionStep(ps, W, H, dt, rate, mode, walls, wallSolidity, heatMode) {
+function antiDiffusionStep(ps, W, H, dt, rate, mode, walls, wallSolidity, heatMode, timeRev) {
   if (rate < 0.001) return;
 
-  const sign = mode === "disperse" ? -1 : 1;
+  let sign = mode === "disperse" ? -1 : 1;
+  // Zaman tersinde: toplanma↔dağılma
+  if (timeRev) sign *= -1;
   const sol = (typeof wallSolidity === "number") ? wallSolidity : 1;
   // heatMode: "heat" (ısınır), "none" (termal etki yok), "cool" (soğur)
-  const thermal = heatMode || "none";
+  // timeRev: termal etkiyi de ters çevir
+  let thermal = heatMode || "none";
+  if (timeRev && thermal === "heat") thermal = "cool";
+  else if (timeRev && thermal === "cool") thermal = "heat";
 
   let comX = 0, comY = 0, totalM = 0, count = 0;
   for (const p of ps) {
@@ -445,7 +446,7 @@ const RXNS=[
   {name:"Fuel+Ox→Ür",r:[TYPE_FUEL,TYPE_OX],p:[TYPE_PRODUCT],ea:4,dh:-5,kf:1,kb:.05,bin:true},
   {name:"AB→A+B",r:[TYPE_AB],p:[TYPE_A,TYPE_B],ea:5,dh:2,kf:.4,kb:.6,bin:false},
 ];
-function rxnStep(ps,dt,mode,rr,on,eam,isr){
+function rxnStep(ps,dt,mode,rr,on,eam,isr,timeRev){
   if(!on) return 0;
   let rxnCount = 0;
 
@@ -466,9 +467,10 @@ function rxnStep(ps,dt,mode,rr,on,eam,isr){
       if(!((t[0]===rule.r[0]&&t[1]===rule.r[1])||(t[0]===rule.r[1]&&t[1]===rule.r[0]))) continue;
       const temp=Math.max(0.5*((a.vx*a.vx+a.vy*a.vy)+(b.vx*b.vx+b.vy*b.vy))*0.5, 0.01);
       const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
+      const fwd=timeRev?rule.kb:rule.kf, bwd=timeRev?rule.kf:rule.kb;
       const rawRate=isR
-        ?(rule.kb>0.001? rule.kb*Math.exp(-rule.ea*eam/temp) : 0)
-        : rule.kf*Math.exp(-rule.ea*eam/temp);
+        ?(bwd>0.001? bwd*Math.exp(-rule.ea*eam/temp) : 0)
+        : fwd*Math.exp(-rule.ea*eam/temp);
       const prob = 1 - Math.exp(-rawRate * dt);
       if(Math.random() > prob) return;
       toReactBin.push({i, j, rule, sec:a.sector});
@@ -521,9 +523,10 @@ function rxnStep(ps,dt,mode,rr,on,eam,isr){
       if(rule.bin||a.ptype!==rule.r[0]) continue;
       const temp=Math.max(0.5*(a.vx*a.vx+a.vy*a.vy), 0.01);
       const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
+      const fwd=timeRev?rule.kb:rule.kf, bwd=timeRev?rule.kf:rule.kb;
       const rawRate=isR
-        ?(rule.kb>0.001? rule.kb*Math.exp(-rule.ea*eam/temp) : 0)
-        : rule.kf*Math.exp(-rule.ea*eam/temp);
+        ?(bwd>0.001? bwd*Math.exp(-rule.ea*eam/temp) : 0)
+        : fwd*Math.exp(-rule.ea*eam/temp);
       const prob = 1 - Math.exp(-rawRate * dt);
       if(Math.random() > prob) continue;
       const ke=0.5*a.mass*(a.vx*a.vx+a.vy*a.vy);
@@ -996,26 +999,28 @@ export default function ThermoSim() {
             s.ps = s.revF[s.revI].map(p => ({...p}));
 
           } else if (s.mode === "reverse" && s.revMode === "dynamic") {
+            const tr = s.timeReversed;
             for (const p of s.ps) { p.vx *= -1; p.vy *= -1; }
-            physicsStep(s.ps, W, H, 1/60, "normal", 1.0, 0, s.walls, s.thermRev, s.thermRevRate, s.wallSolidity, s.thermClamp);
+            physicsStep(s.ps, W, H, 1/60, "normal", 1.0, 0, s.walls, s.thermRev, s.thermRevRate, s.wallSolidity, s.thermClamp, tr);
             for (const p of s.ps) { p.vx *= -1; p.vy *= -1; }
-            s.rxnT += rxnStep(s.ps, 1/60, "reverse", 12, s.rxn, s.eam, s.isrxn);
-            if (s.thermRev) antiFourierStep(s.ps, W, H, 1/60, s.thermRevRate, s.thermClamp);
-            if (s.spatialRev) antiDiffusionStep(s.ps, W, H, 1/60, s.spatialRevRate, s.spatialRevMode, s.walls, s.wallSolidity, s.spatialHeatMode);
+            s.rxnT += rxnStep(s.ps, 1/60, "reverse", 12, s.rxn, s.eam, s.isrxn, tr);
+            if (s.thermRev) antiFourierStep(s.ps, W, H, 1/60, s.thermRevRate, s.thermClamp, tr);
+            if (s.spatialRev) antiDiffusionStep(s.ps, W, H, 1/60, s.spatialRevRate, s.spatialRevMode, s.walls, s.wallSolidity, s.spatialHeatMode, tr);
             enforceWalls(s.ps, s.walls, s.wallSolidity, 0.98);
-            wallThermalTransfer(s.ps, s.walls, 1/60, s.wallThermalPerm);
+            wallThermalTransfer(s.ps, s.walls, 1/60, s.wallThermalPerm, tr);
 
           } else {
-            physicsStep(s.ps, W, H, 1/60, s.mode, s.rest, s.coup, s.walls, s.thermRev, s.thermRevRate, s.wallSolidity, s.thermClamp);
-            s.rxnT += rxnStep(s.ps, 1/60, s.mode, 12, s.rxn, s.eam, s.isrxn);
+            const tr = s.timeReversed;
+            physicsStep(s.ps, W, H, 1/60, s.mode, s.rest, s.coup, s.walls, s.thermRev, s.thermRevRate, s.wallSolidity, s.thermClamp, tr);
+            s.rxnT += rxnStep(s.ps, 1/60, s.mode, 12, s.rxn, s.eam, s.isrxn, tr);
             if (s.thermRev && (s.mode === "mixed_physical" || s.mode === "mixed_cinematic")) {
-              antiFourierStep(s.ps, W, H, 1/60, s.thermRevRate, s.thermClamp);
+              antiFourierStep(s.ps, W, H, 1/60, s.thermRevRate, s.thermClamp, tr);
             }
             if (s.spatialRev && (s.mode === "mixed_physical" || s.mode === "mixed_cinematic")) {
-              antiDiffusionStep(s.ps, W, H, 1/60, s.spatialRevRate, s.spatialRevMode, s.walls, s.wallSolidity, s.spatialHeatMode);
+              antiDiffusionStep(s.ps, W, H, 1/60, s.spatialRevRate, s.spatialRevMode, s.walls, s.wallSolidity, s.spatialHeatMode, tr);
             }
             enforceWalls(s.ps, s.walls, s.wallSolidity, 0.98);
-            wallThermalTransfer(s.ps, s.walls, 1/60, s.wallThermalPerm);
+            wallThermalTransfer(s.ps, s.walls, 1/60, s.wallThermalPerm, tr);
           }
 
           s.frame++;
@@ -1166,7 +1171,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v31</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v32</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1190,8 +1195,8 @@ export default function ThermoSim() {
         <button onClick={()=>{
           s.run=false;
           if(s.mode==="reverse"&&s.revMode==="playback"&&s.revF){s.revI=Math.min(s.revI+1,s.revF.length-1);s.ps=s.revF[s.revI].map(p=>({...p}));}
-          else if(s.mode==="reverse"&&s.revMode==="dynamic"){for(const p of s.ps){p.vx*=-1;p.vy*=-1;}physicsStep(s.ps,simW,simH,1/60,"normal",1,0,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp);for(const p of s.ps){p.vx*=-1;p.vy*=-1;}s.rxnT+=rxnStep(s.ps,1/60,"reverse",12,s.rxn,s.eam,s.isrxn);if(s.thermRev)antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp);if(s.spatialRev)antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm);}
-          else{physicsStep(s.ps,simW,simH,1/60,s.mode,s.rest,s.coup,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp);rxnStep(s.ps,1/60,s.mode,12,s.rxn,s.eam,s.isrxn);if(s.thermRev&&(s.mode==="mixed_physical"||s.mode==="mixed_cinematic"))antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp);if(s.spatialRev&&(s.mode==="mixed_physical"||s.mode==="mixed_cinematic"))antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm);}
+          else if(s.mode==="reverse"&&s.revMode==="dynamic"){const tr=s.timeReversed;for(const p of s.ps){p.vx*=-1;p.vy*=-1;}physicsStep(s.ps,simW,simH,1/60,"normal",1,0,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp,tr);for(const p of s.ps){p.vx*=-1;p.vy*=-1;}s.rxnT+=rxnStep(s.ps,1/60,"reverse",12,s.rxn,s.eam,s.isrxn,tr);if(s.thermRev)antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp,tr);if(s.spatialRev)antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode,tr);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm,tr);}
+          else{const tr=s.timeReversed;physicsStep(s.ps,simW,simH,1/60,s.mode,s.rest,s.coup,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp,tr);rxnStep(s.ps,1/60,s.mode,12,s.rxn,s.eam,s.isrxn,tr);if(s.thermRev&&(s.mode==="mixed_physical"||s.mode==="mixed_cinematic"))antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp,tr);if(s.spatialRev&&(s.mode==="mixed_physical"||s.mode==="mixed_cinematic"))antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode,tr);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm,tr);}
           s.frame++;bump();
         }} style={{flex:.6,padding:"10px 0",borderRadius:6,border:"none",background:"#1e1e2e",color:"#889",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}>
           Adım→
