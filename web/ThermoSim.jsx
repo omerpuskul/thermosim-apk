@@ -844,7 +844,7 @@ export default function ThermoSim() {
     thermRev:false, thermRevRate:0.5, thermClamp:0.5,
     spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
     sH:[], sN:[], sR:[], eH:[], kH:[],
-    rxnT:0, pCntNorm:60, pCntRev:60, lastP:"hot_cold", spdAcc:0, spdRaw:500, timeReversed:false
+    rxnT:0, pCntNorm:60, pCntRev:60, lastP:"hot_cold", spdAcc:0, spdRaw:333, timeReversed:false
   });
   const raf = useRef(null);
   const [, tick] = useState(0);
@@ -1166,7 +1166,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v30</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v31</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1285,14 +1285,17 @@ export default function ThermoSim() {
 
       <div style={{padding:"8px",minHeight:160,paddingBottom:40}}>
         {tab==="ctrl"&&(<div>
-          {/* Hız: özel çift bölgeli slider — ortası 1×, sol yarı 0.01-1, sağ yarı 1-100 */}
+          {/* Hız: 3 bölgeli slider — 0-1× | 1-10× | 10-100× eşit genişlikte */}
           <div style={{marginBottom:8}}>
             <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#778",marginBottom:2}}>
               <span>Hız</span>
               <span style={{color:"#aab"}}>{
                 s.spdRaw===0?"⏹ Durdur":
                 (()=>{
-                  const v = s.spdRaw<=500 ? 0.01+(s.spdRaw-1)/499*0.99 : 1+(s.spdRaw-500)/500*99;
+                  let v;
+                  if(s.spdRaw<=333) v=0.01+(s.spdRaw-1)/332*0.99;
+                  else if(s.spdRaw<=666) v=1+(s.spdRaw-333)/333*9;
+                  else v=10+(s.spdRaw-666)/334*90;
                   return s.spdRaw<=0?"⏹ Durdur": v<1?v.toFixed(2)+"×":v<10?v.toFixed(1)+"×":Math.round(v)+"×";
                 })()
               }</span>
@@ -1302,13 +1305,14 @@ export default function ThermoSim() {
                 const raw=parseInt(e.target.value);
                 s.spdRaw=raw;
                 if(raw===0){s.spd=0;}
-                else if(raw<=500){s.spd=0.01+(raw-1)/499*0.99;}
-                else{s.spd=1+(raw-500)/500*99;}
+                else if(raw<=333){s.spd=0.01+(raw-1)/332*0.99;}
+                else if(raw<=666){s.spd=1+(raw-333)/333*9;}
+                else{s.spd=10+(raw-666)/334*90;}
                 bump();
               }}
               style={{width:"100%",height:6,accentColor:"#3070d0",cursor:"pointer"}}/>
             <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:"#334",marginTop:1}}>
-              <span>⏹</span><span>0.01×</span><span style={{color:"#5080c0"}}>▼ 1×</span><span>50×</span><span>100×</span>
+              <span>⏹</span><span style={{color:"#5080c0"}}>▼1×</span><span style={{color:"#5080c0"}}>▼10×</span><span>100×</span>
             </div>
           </div>
           <Sl label="Normal ●" value={s.pCntNorm} min={0} max={200} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntNorm=v;bump();}}/>
