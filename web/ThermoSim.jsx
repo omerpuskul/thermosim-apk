@@ -1087,6 +1087,9 @@ export default function ThermoSim() {
       drawG(ctx,2,gy,gw,gh,"Entropi",[s.sH,s.sN,s.sR],["#ddd","#66b4ff","#b466ff"]);
       drawG(ctx,W/2+2,gy,gw,gh,"Enerji",[s.eH,s.kH],["#ddd","#50dc78"]);
 
+      // React UI güncelleme: istatistik sekmesi canlı kalması için
+      if (s.run && s.frame % 12 === 0) bump();
+
       raf.current=requestAnimationFrame(loop);
     };
     raf.current=requestAnimationFrame(loop);
@@ -1171,7 +1174,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v32</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v33</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
