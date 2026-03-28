@@ -237,6 +237,41 @@ function physicsStep(ps, W, H, dt, mode, rest, coupling, walls, thermRev, thermR
   enforceWalls(ps, walls, wallSolidity, d);
 }
 
+// ─── SPATIAL GRID (Integer key — string overhead yok) ──────────
+const GRID_COLS = 1000; // max grid genişliği
+function buildGrid(ps, cs, filter) {
+  const g = new Map();
+  for (let i = 0; i < ps.length; i++) {
+    if (filter && !filter(ps[i])) continue;
+    const k = (Math.floor(ps[i].x / cs)) * GRID_COLS + Math.floor(ps[i].y / cs);
+    const c = g.get(k);
+    if (c) c.push(i); else g.set(k, [i]);
+  }
+  return g;
+}
+function gridNearbyPairs(g, cs, radius, ps, cb) {
+  const rSq = radius * radius;
+  const span = Math.ceil(radius / cs);
+  for (const [key, cell] of g) {
+    const cx = (key / GRID_COLS) | 0, cy = key % GRID_COLS;
+    // Aynı hücre
+    for (let a = 0; a < cell.length; a++)
+      for (let b = a + 1; b < cell.length; b++)
+        cb(cell[a], cell[b], rSq);
+    // İleri komşular (çift sayım önle)
+    for (let dx = 0; dx <= span; dx++) {
+      for (let dy = (dx === 0 ? 1 : -span); dy <= span; dy++) {
+        const nk = (cx + dx) * GRID_COLS + (cy + dy);
+        const nc = g.get(nk);
+        if (!nc) continue;
+        for (let a = 0; a < cell.length; a++)
+          for (let b = 0; b < nc.length; b++)
+            cb(cell[a], nc[b], rSq);
+      }
+    }
+  }
+}
+
 // ─── ANTİ-FOURİER TERMAL REVERSE ──────────────────────────────
 /*
  * Çarpışma bazlı + post-step cascade.
@@ -269,31 +304,45 @@ function antiFourierStep(ps, W, H, dt, rate, clamp, timeRev) {
   if (rate < 0.001) return;
   const cl = typeof clamp === "number" ? clamp : 0.5;
   if (cl < 0.001) return;
-  const rev = [];
-  for (let i = 0; i < ps.length; i++) { if (ps[i].sector === SECTOR_REVERSE) rev.push(i); }
-  if (rev.length < 2) return;
   const radius = 40, radiusSq = radius * radius;
-  for (let ii = 0; ii < rev.length; ii++) {
-    const i = rev[ii], a = ps[i];
-    for (let jj = ii + 1; jj < rev.length; jj++) {
-      const j = rev[jj], b = ps[j], dx = b.x - a.x, dy = b.y - a.y;
-      if (dx * dx + dy * dy > radiusSq) continue;
-      const keA = a.vx * a.vx + a.vy * a.vy;
-      const keB = b.vx * b.vx + b.vy * b.vy;
-      const diff = timeRev ? -(keA - keB) : (keA - keB);
-      if (Math.abs(diff) < 0.001) continue;
-      let transfer = diff * rate * dt;
-      if (cl <= 1.0) {
-        if (transfer > 0) { transfer = Math.min(transfer, keB * cl); }
-        else { transfer = Math.max(transfer, -keA * cl); }
-      }
-      if (Math.abs(transfer) < 0.0001) continue;
-      const newKeA = keA + transfer, newKeB = keB - transfer;
-      const factorA = newKeA > 0 ? Math.sqrt(newKeA / Math.max(keA, 0.0001)) : 0.01;
-      const factorB = newKeB > 0 ? Math.sqrt(newKeB / Math.max(keB, 0.0001)) : 0.01;
-      a.vx *= Math.min(factorA, 3.0); a.vy *= Math.min(factorA, 3.0);
-      b.vx *= factorB; b.vy *= factorB;
+
+  // Çift etkileşim fonksiyonu
+  function interact(i, j, rSq) {
+    const a = ps[i], b = ps[j];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (dx * dx + dy * dy > rSq) return;
+    const keA = a.vx * a.vx + a.vy * a.vy;
+    const keB = b.vx * b.vx + b.vy * b.vy;
+    const diff = timeRev ? -(keA - keB) : (keA - keB);
+    if (Math.abs(diff) < 0.001) return;
+    let transfer = diff * rate * dt;
+    if (cl <= 1.0) {
+      if (transfer > 0) { transfer = Math.min(transfer, keB * cl); }
+      else { transfer = Math.max(transfer, -keA * cl); }
     }
+    if (Math.abs(transfer) < 0.0001) return;
+    const newKeA = keA + transfer, newKeB = keB - transfer;
+    const factorA = newKeA > 0 ? Math.sqrt(newKeA / Math.max(keA, 0.0001)) : 0.01;
+    const factorB = newKeB > 0 ? Math.sqrt(newKeB / Math.max(keB, 0.0001)) : 0.01;
+    a.vx *= Math.min(factorA, 3.0); a.vy *= Math.min(factorA, 3.0);
+    b.vx *= factorB; b.vy *= factorB;
+  }
+
+  // N≥80: grid, altında: brute-force
+  const revFilter = p => p.sector === SECTOR_REVERSE;
+  let revCount = 0;
+  for (let i = 0; i < ps.length; i++) if (revFilter(ps[i])) revCount++;
+  if (revCount < 2) return;
+
+  if (revCount >= 80) {
+    const g = buildGrid(ps, radius, revFilter);
+    gridNearbyPairs(g, radius, radius, ps, interact);
+  } else {
+    const rev = [];
+    for (let i = 0; i < ps.length; i++) if (revFilter(ps[i])) rev.push(i);
+    for (let ii = 0; ii < rev.length; ii++)
+      for (let jj = ii + 1; jj < rev.length; jj++)
+        interact(rev[ii], rev[jj], radiusSq);
   }
 }
 
@@ -412,30 +461,40 @@ function rxnStep(ps,dt,mode,rr,on,eam,isr,timeRev,dhShift,balMul){
   // ── İKİ PARÇACIKLI REAKSİYONLAR ──
   const toReactBin = [];
   const usedIdx = new Set();
+  const rrSq = rr * rr;
 
-  for(let i=0;i<ps.length;i++){
-    if(usedIdx.has(i)) continue;
-    for(let j=i+1;j<ps.length;j++){
-      if(usedIdx.has(j)) continue;
-      const a=ps[i],b=ps[j],dx=b.x-a.x,dy=b.y-a.y;
-      if(dx*dx+dy*dy>rr*rr) continue;
-      if(a.sector!==b.sector&&!isr) continue;
-      for(const rule of RXNS){
-        if(!rule.bin) continue;
-        const t=[a.ptype,b.ptype];
-        if(!((t[0]===rule.r[0]&&t[1]===rule.r[1])||(t[0]===rule.r[1]&&t[1]===rule.r[0]))) continue;
-        const temp=Math.max(0.5*((a.vx*a.vx+a.vy*a.vy)+(b.vx*b.vx+b.vy*b.vy))*0.5, 0.01);
-        const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
-        // Efektif kf/kb: bal çarpanı + ters sektör + zaman tersi
-        let ekf = rule.kf * bal, ekb = rule.kb / bal;
-        if(isR) { const tmp=ekf; ekf=ekb; ekb=tmp; } // Reverse: kf↔kb
-        if(timeRev) { const tmp=ekf; ekf=ekb; ekb=tmp; } // Zaman tersi: kf↔kb
-        const rawRate = ekf > 0.001 ? ekf * Math.exp(-rule.ea*eam/temp) : 0;
-        const prob = 1 - Math.exp(-rawRate * dt);
-        if(Math.random() > prob) continue;
-        toReactBin.push({i, j, rule, sec:a.sector});
-        usedIdx.add(i); usedIdx.add(j);
-        break;
+  function checkPair(i, j, rSq) {
+    if(usedIdx.has(i) || usedIdx.has(j)) return;
+    const a=ps[i],b=ps[j],dx=b.x-a.x,dy=b.y-a.y;
+    if(dx*dx+dy*dy>rSq) return;
+    if(a.sector!==b.sector&&!isr) return;
+    for(const rule of RXNS){
+      if(!rule.bin) continue;
+      const t=[a.ptype,b.ptype];
+      if(!((t[0]===rule.r[0]&&t[1]===rule.r[1])||(t[0]===rule.r[1]&&t[1]===rule.r[0]))) continue;
+      const temp=Math.max(0.5*((a.vx*a.vx+a.vy*a.vy)+(b.vx*b.vx+b.vy*b.vy))*0.5, 0.01);
+      const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
+      let ekf = rule.kf * bal, ekb = rule.kb / bal;
+      if(isR) { const tmp=ekf; ekf=ekb; ekb=tmp; }
+      if(timeRev) { const tmp=ekf; ekf=ekb; ekb=tmp; }
+      const rawRate = ekf > 0.001 ? ekf * Math.exp(-rule.ea*eam/temp) : 0;
+      const prob = 1 - Math.exp(-rawRate * dt);
+      if(Math.random() > prob) return;
+      toReactBin.push({i, j, rule, sec:a.sector});
+      usedIdx.add(i); usedIdx.add(j);
+      return;
+    }
+  }
+
+  if (ps.length >= 80) {
+    const g = buildGrid(ps, Math.max(rr, 4), null);
+    gridNearbyPairs(g, Math.max(rr, 4), rr, ps, checkPair);
+  } else {
+    for(let i=0;i<ps.length;i++){
+      if(usedIdx.has(i)) continue;
+      for(let j=i+1;j<ps.length;j++){
+        if(usedIdx.has(j)) continue;
+        checkPair(i, j, rrSq);
       }
     }
   }
@@ -1050,8 +1109,15 @@ export default function ThermoSim() {
       drawG(ctx,W/2+2,gy,gw,gh,"Enerji",[s.eH,s.kH],["#ddd","#50dc78"]);
 
       // React UI güncelleme: istatistik sekmesi canlı kalması için
-      // React UI: sadece istatistik sekmesi açıkken güncelle
-      if (s.run && s.frame % 30 === 0 && tabRef.current === "stat") bump();
+      // React UI: istatistik sekmesi açıkken, hıza göre ölçekli güncelleme
+      if (s.run && tabRef.current === "stat") {
+        const now = performance.now();
+        const bumpMs = s.spd <= 1 ? 200 : s.spd <= 10 ? 400 : 800;
+        if (!s._lastBump || now - s._lastBump > bumpMs) {
+          s._lastBump = now;
+          bump();
+        }
+      }
 
       raf.current=requestAnimationFrame(loop);
     };
@@ -1137,7 +1203,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v35</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v36</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1286,8 +1352,8 @@ export default function ThermoSim() {
               <span>⏹</span><span style={{color:"#5080c0"}}>▼1×</span><span style={{color:"#5080c0"}}>▼10×</span><span>100×</span>
             </div>
           </div>
-          <Sl label="Normal ●" value={s.pCntNorm} min={0} max={200} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntNorm=v;bump();}}/>
-          <Sl label="Ters ◆" value={s.pCntRev} min={0} max={200} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntRev=v;bump();}}/>
+          <Sl label="Normal ●" value={s.pCntNorm} min={0} max={300} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntNorm=v;bump();}}/>
+          <Sl label="Ters ◆" value={s.pCntRev} min={0} max={300} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntRev=v;bump();}}/>
           <div style={{fontSize:8,color:"#556",marginBottom:4}}>Toplam: {s.pCntNorm+s.pCntRev} parçacık (değişiklik sıfırlamada uygulanır)</div>
           <Sl label="Elastiklik" value={s.rest} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.rest=v;bump();}}/>
           <Sl label="Kuplaj κ" value={s.coup} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
