@@ -458,9 +458,9 @@ function antiDiffusionStep(ps, W, H, dt, rate, mode, walls, wallSolidity, heatMo
 
 // ─── REACTIONS ─────────────────────────────────────────────────
 const CHEM_RXNS=[
-  {name:"A+B→AB",r:[TYPE_A,TYPE_B],p:[TYPE_AB],ea:3,dh:-2,kf:.8,kb:.3,bin:true},
-  {name:"Fuel+Ox→Ür",r:[TYPE_FUEL,TYPE_OX],p:[TYPE_PRODUCT],ea:4,dh:-5,kf:1,kb:.05,bin:true},
-  {name:"AB→A+B",r:[TYPE_AB],p:[TYPE_A,TYPE_B],ea:5,dh:2,kf:.4,kb:.6,bin:false},
+  {name:"A+B→AB",r:[TYPE_A,TYPE_B],p:[TYPE_AB],ea:3,dh:-2,kf:.8,kb:.3,bin:true,chem:true},
+  {name:"Fuel+Ox→Ür",r:[TYPE_FUEL,TYPE_OX],p:[TYPE_PRODUCT],ea:4,dh:-5,kf:1,kb:.05,bin:true,chem:true},
+  {name:"AB→A+B",r:[TYPE_AB],p:[TYPE_A,TYPE_B],ea:5,dh:2,kf:.4,kb:.6,bin:false,chem:true},
 ];
 const NUC_RXNS=[
   {name:"H+H→He",r:[TYPE_H,TYPE_H],p:[TYPE_HE],ea:8,dh:-8,kf:.6,kb:.1,bin:true},
@@ -476,6 +476,14 @@ function rxnStep(ps,dt,mode,rr,chemOn,nucOn,eam,isr,timeRev,dhShift,balMul){
   const dhs = typeof dhShift === "number" ? dhShift : 0;
   const bal = typeof balMul === "number" && balMul > 0 ? balMul : 1;
 
+  // Kimyasal takma ad: nükleer parçacıklar kimyasal reaksiyonlarda rol üstlenir
+  // H,U,N → A rolü | Fr → B rolü | He,Product → AB rolü
+  const chemAlias = chemOn ? {
+    [TYPE_H]: TYPE_A, [TYPE_U]: TYPE_A, [TYPE_N]: TYPE_A,
+    [TYPE_FR]: TYPE_B, [TYPE_HE]: TYPE_AB, [TYPE_PRODUCT]: TYPE_AB,
+  } : {};
+  function matchType(ptype) { return chemAlias[ptype] !== undefined ? chemAlias[ptype] : ptype; }
+
   // ── İKİ PARÇACIKLI REAKSİYONLAR ──
   const toReactBin = [];
   const usedIdx = new Set();
@@ -488,8 +496,10 @@ function rxnStep(ps,dt,mode,rr,chemOn,nucOn,eam,isr,timeRev,dhShift,balMul){
     if(a.sector!==b.sector&&!isr) return;
     for(const rule of RXNS){
       if(!rule.bin) continue;
-      const t=[a.ptype,b.ptype];
-      if(!((t[0]===rule.r[0]&&t[1]===rule.r[1])||(t[0]===rule.r[1]&&t[1]===rule.r[0]))) continue;
+      // Kimyasal kurallar için alias kullan, nükleer kurallar için gerçek tip
+      const ta = rule.chem ? matchType(a.ptype) : a.ptype;
+      const tb = rule.chem ? matchType(b.ptype) : b.ptype;
+      if(!((ta===rule.r[0]&&tb===rule.r[1])||(ta===rule.r[1]&&tb===rule.r[0]))) continue;
       const temp=Math.max(0.5*((a.vx*a.vx+a.vy*a.vy)+(b.vx*b.vx+b.vy*b.vy))*0.5, 0.01);
       const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
       let ekf = rule.kf * bal, ekb = rule.kb / bal;
@@ -554,7 +564,9 @@ function rxnStep(ps,dt,mode,rr,chemOn,nucOn,eam,isr,timeRev,dhShift,balMul){
     if(usedUni.has(i)) continue;
     const a=ps[i];
     for(const rule of RXNS){
-      if(rule.bin||a.ptype!==rule.r[0]) continue;
+      if(rule.bin) continue;
+      const ta = rule.chem ? matchType(a.ptype) : a.ptype;
+      if(ta!==rule.r[0]) continue;
       const temp=Math.max(0.5*(a.vx*a.vx+a.vy*a.vy), 0.01);
       const isR=a.sector===SECTOR_REVERSE&&(mode==="reverse"||mode.startsWith("mixed"));
       let ekf = rule.kf * bal, ekb = rule.kb / bal;
@@ -632,7 +644,7 @@ const PRESET_DEFAULTS = {
   mode:"normal", rxn:false, nucRxn:false, coup:0, walls:[], rxnDh:0, rxnBal:1, rxnRad:12, rxnABRatio:0.5, rxnProductRatio:0, nucDh:0, nucBal:1, nucRad:12, nucHURatio:0.5, nucNPct:0.1, hotColdRatio:0.5,
   thermRev:false, thermRevRate:0.5, thermClamp:0.5,
   spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
-  revMode:"dynamic", wallSolidity:1.0, wallThermalPerm:0.0, wallLeftTemp:0.5, wallRightTemp:0.5,
+  revMode:"dynamic", wallSolidity:1.0, wallThermalPerm:0.0, wallLeftTemp:0.5, wallRightTemp:0.5, wallLeftNormPct:0.5, wallLeftRevPct:0.5,
   pCntNorm:80, pCntRev:0,
 };
 
@@ -913,13 +925,37 @@ function applyWallTemps(ps, walls, leftTemp, rightTemp) {
   const w = walls[0];
   if (Math.abs(w.x1 - w.x2) > 2) return;
   const wx = (w.x1 + w.x2) / 2;
-  // leftTemp/rightTemp: 0=soğuk(hız≈1), 1=sıcak(hız≈10)
   const lSpd = 1 + (typeof leftTemp === "number" ? leftTemp : 0.5) * 9;
   const rSpd = 1 + (typeof rightTemp === "number" ? rightTemp : 0.5) * 9;
   for (const p of ps) {
     const spd = p.x < wx ? lSpd : rSpd;
     const [vx,vy] = randVel(spd);
     p.vx = vx; p.vy = vy;
+  }
+}
+
+function applyWallPartition(ps, walls, leftNormPct, leftRevPct, W, H) {
+  if (!walls || walls.length === 0) return;
+  const w = walls[0];
+  if (Math.abs(w.x1 - w.x2) > 2) return;
+  const wx = (w.x1 + w.x2) / 2;
+  const lnp = typeof leftNormPct === "number" ? leftNormPct : 0.5;
+  const lrp = typeof leftRevPct === "number" ? leftRevPct : 0.5;
+  const norms = ps.filter(p => p.sector === SECTOR_NORMAL);
+  const revs = ps.filter(p => p.sector === SECTOR_REVERSE);
+  const nLeft = Math.round(norms.length * lnp);
+  const rLeft = Math.round(revs.length * lrp);
+  for (let i = 0; i < norms.length; i++) {
+    const p = norms[i];
+    if (i < nLeft) { p.x = Math.random() * (wx - 12) + 6; }
+    else { p.x = wx + 6 + Math.random() * (W - wx - 12); }
+    p.y = Math.random() * (H - 12) + 6;
+  }
+  for (let i = 0; i < revs.length; i++) {
+    const p = revs[i];
+    if (i < rLeft) { p.x = Math.random() * (wx - 12) + 6; }
+    else { p.x = wx + 6 + Math.random() * (W - wx - 12); }
+    p.y = Math.random() * (H - 12) + 6;
   }
 }
 
@@ -998,9 +1034,9 @@ export default function ThermoSim() {
   const canvasRef = useRef(null);
   const S = useRef({
     ps:[], frame:0, run:false, mode:"normal", rest:.95, coup:0,
-    rxn:false, nucRxn:false, isrxn:false, eam:1, rxnDh:0, rxnBal:1, rxnRad:12, rxnABRatio:0.5, rxnProductRatio:0,
+    rxn:false, nucRxn:false, isrxn:false, eam:1, nucEam:1, rxnDh:0, rxnBal:1, rxnRad:12, rxnABRatio:0.5, rxnProductRatio:0,
     nucDh:0, nucBal:1, nucRad:12, nucHURatio:0.5, nucNPct:0.1, hotColdRatio:0.5, spd:1,
-    walls:[], wallSolidity:1.0, wallThermalPerm:0.0, wallLeftTemp:0.5, wallRightTemp:0.5, showVel:false, showTBg:true, showEMap:false,
+    walls:[], wallSolidity:1.0, wallThermalPerm:0.0, wallLeftTemp:0.5, wallRightTemp:0.5, wallLeftNormPct:0.5, wallLeftRevPct:0.5, showVel:false, showTBg:true, showEMap:false,
     revF:null, revI:0, revLoop:true, revMode:"playback",
     thermRev:false, thermRevRate:0.5, thermClamp:0.5,
     spatialRev:false, spatialRevRate:0.2, spatialRevMode:"cluster", spatialHeatMode:"heat",
@@ -1033,8 +1069,8 @@ export default function ThermoSim() {
   function saveSnapshot() {
     const s = S.current;
     s._snapshot = {
-      lastP: s.lastP, mode: s.mode, rxn: s.rxn, nucRxn: s.nucRxn, rxnDh: s.rxnDh, rxnBal: s.rxnBal, rxnRad: s.rxnRad, rxnABRatio: s.rxnABRatio, rxnProductRatio: s.rxnProductRatio, hotColdRatio: s.hotColdRatio, nucDh: s.nucDh, nucBal: s.nucBal, nucRad: s.nucRad, nucHURatio: s.nucHURatio, nucNPct: s.nucNPct, coup: s.coup, rest: s.rest, eam: s.eam,
-      walls: s.walls.map(w=>({...w})), wallSolidity: s.wallSolidity, wallThermalPerm: s.wallThermalPerm, wallLeftTemp: s.wallLeftTemp, wallRightTemp: s.wallRightTemp,
+      lastP: s.lastP, mode: s.mode, rxn: s.rxn, nucRxn: s.nucRxn, rxnDh: s.rxnDh, rxnBal: s.rxnBal, rxnRad: s.rxnRad, rxnABRatio: s.rxnABRatio, rxnProductRatio: s.rxnProductRatio, hotColdRatio: s.hotColdRatio, nucDh: s.nucDh, nucBal: s.nucBal, nucRad: s.nucRad, nucHURatio: s.nucHURatio, nucNPct: s.nucNPct, coup: s.coup, rest: s.rest, eam: s.eam, nucEam: s.nucEam,
+      walls: s.walls.map(w=>({...w})), wallSolidity: s.wallSolidity, wallThermalPerm: s.wallThermalPerm, wallLeftTemp: s.wallLeftTemp, wallRightTemp: s.wallRightTemp, wallLeftNormPct: s.wallLeftNormPct, wallLeftRevPct: s.wallLeftRevPct,
       thermRev: s.thermRev, thermRevRate: s.thermRevRate, thermClamp: s.thermClamp,
       spatialRev: s.spatialRev, spatialRevRate: s.spatialRevRate,
       spatialRevMode: s.spatialRevMode, spatialHeatMode: s.spatialHeatMode,
@@ -1072,6 +1108,7 @@ export default function ThermoSim() {
     s.wallSolidity = pr.wallSolidity;
     s.wallThermalPerm = pr.wallThermalPerm;
     s.wallLeftTemp = pr.wallLeftTemp; s.wallRightTemp = pr.wallRightTemp;
+    s.wallLeftNormPct = pr.wallLeftNormPct; s.wallLeftRevPct = pr.wallLeftRevPct;
     s.thermRev = pr.thermRev;
     s.thermRevRate = pr.thermRevRate;
     s.thermClamp = pr.thermClamp;
@@ -1106,11 +1143,11 @@ export default function ThermoSim() {
     // Mevcut ayarları sakla
     const saved = {
       mode: s.mode, rxn: s.rxn, nucRxn: s.nucRxn, rxnDh: s.rxnDh, rxnBal: s.rxnBal, rxnRad: s.rxnRad, rxnABRatio: s.rxnABRatio, rxnProductRatio: s.rxnProductRatio, hotColdRatio: s.hotColdRatio, nucDh: s.nucDh, nucBal: s.nucBal, nucRad: s.nucRad, nucHURatio: s.nucHURatio, nucNPct: s.nucNPct, coup: s.coup,
-      walls: s.walls, wallSolidity: s.wallSolidity, wallThermalPerm: s.wallThermalPerm, wallLeftTemp: s.wallLeftTemp, wallRightTemp: s.wallRightTemp,
+      walls: s.walls, wallSolidity: s.wallSolidity, wallThermalPerm: s.wallThermalPerm, wallLeftTemp: s.wallLeftTemp, wallRightTemp: s.wallRightTemp, wallLeftNormPct: s.wallLeftNormPct, wallLeftRevPct: s.wallLeftRevPct,
       thermRev: s.thermRev, thermRevRate: s.thermRevRate, thermClamp: s.thermClamp,
       spatialRev: s.spatialRev, spatialRevRate: s.spatialRevRate,
       spatialRevMode: s.spatialRevMode, spatialHeatMode: s.spatialHeatMode,
-      revMode: s.revMode, rest: s.rest, eam: s.eam, isrxn: s.isrxn,
+      revMode: s.revMode, rest: s.rest, eam: s.eam, nucEam: s.nucEam, isrxn: s.isrxn,
       spd: s.spd, spdRaw: s.spdRaw,
       showVel: s.showVel, showTBg: s.showTBg, showEMap: s.showEMap,
     };
@@ -1132,7 +1169,7 @@ export default function ThermoSim() {
     Object.assign(s, saved);
 
     // Reaksiyon açıksa reaktan türlerini ekle
-    { const bothOn=s.rxn&&s.nucRxn; if(s.rxn) seedReactants(s.ps, s.rxnABRatio, s.rxnProductRatio, bothOn?0.5:1); if(s.nucRxn) seedNuclear(s.ps, s.nucHURatio, s.nucNPct); } applyHotColdRatio(s.ps, s.hotColdRatio); if(s.walls.length>0) applyWallTemps(s.ps, s.walls, s.wallLeftTemp, s.wallRightTemp);
+    { const bothOn=s.rxn&&s.nucRxn; if(s.rxn) seedReactants(s.ps, s.rxnABRatio, s.rxnProductRatio, bothOn?0.5:1); if(s.nucRxn) seedNuclear(s.ps, s.nucHURatio, s.nucNPct); } applyHotColdRatio(s.ps, s.hotColdRatio); if(s.walls.length>0){ applyWallPartition(s.ps, s.walls, s.wallLeftNormPct, s.wallLeftRevPct, simW, Math.round(simW*0.65)); applyWallTemps(s.ps, s.walls, s.wallLeftTemp, s.wallRightTemp); }
 
     // _wallSide temizle
     for (const p of s.ps) delete p._wallSide;
@@ -1175,7 +1212,7 @@ export default function ThermoSim() {
             physicsStep(s.ps, W, H, 1/60, "normal", 1.0, 0, s.walls, s.thermRev, s.thermRevRate, s.wallSolidity, s.thermClamp, tr);
             for (const p of s.ps) { p.vx *= -1; p.vy *= -1; }
             s.rxnT += rxnStep(s.ps, 1/60, "reverse", s.rxnRad, s.rxn, false, s.eam, s.isrxn, tr, s.rxnDh, s.rxnBal);
-            s.rxnT += rxnStep(s.ps, 1/60, "reverse", s.nucRad, false, s.nucRxn, s.eam, s.isrxn, tr, s.nucDh, s.nucBal);
+            s.rxnT += rxnStep(s.ps, 1/60, "reverse", s.nucRad, false, s.nucRxn, s.nucEam, s.isrxn, tr, s.nucDh, s.nucBal);
             if (s.thermRev) antiFourierStep(s.ps, W, H, 1/60, s.thermRevRate, s.thermClamp, tr);
             if (s.spatialRev) antiDiffusionStep(s.ps, W, H, 1/60, s.spatialRevRate, s.spatialRevMode, s.walls, s.wallSolidity, s.spatialHeatMode, tr);
             enforceWalls(s.ps, s.walls, s.wallSolidity, 0.98);
@@ -1185,11 +1222,11 @@ export default function ThermoSim() {
             const tr = s.timeReversed;
             physicsStep(s.ps, W, H, 1/60, s.mode, s.rest, s.coup, s.walls, s.thermRev, s.thermRevRate, s.wallSolidity, s.thermClamp, tr);
             s.rxnT += rxnStep(s.ps, 1/60, s.mode, s.rxnRad, s.rxn, false, s.eam, s.isrxn, tr, s.rxnDh, s.rxnBal);
-            s.rxnT += rxnStep(s.ps, 1/60, s.mode, s.nucRad, false, s.nucRxn, s.eam, s.isrxn, tr, s.nucDh, s.nucBal);
-            if (s.thermRev && (s.mode === "mixed_physical" || s.mode === "mixed_cinematic")) {
+            s.rxnT += rxnStep(s.ps, 1/60, s.mode, s.nucRad, false, s.nucRxn, s.nucEam, s.isrxn, tr, s.nucDh, s.nucBal);
+            if (s.thermRev) {
               antiFourierStep(s.ps, W, H, 1/60, s.thermRevRate, s.thermClamp, tr);
             }
-            if (s.spatialRev && (s.mode === "mixed_physical" || s.mode === "mixed_cinematic")) {
+            if (s.spatialRev) {
               antiDiffusionStep(s.ps, W, H, 1/60, s.spatialRevRate, s.spatialRevMode, s.walls, s.wallSolidity, s.spatialHeatMode, tr);
             }
             enforceWalls(s.ps, s.walls, s.wallSolidity, 0.98);
@@ -1345,6 +1382,17 @@ export default function ThermoSim() {
   const avgT=nTot>0?tK/nTot:0;
   const dec=decoherence(s.ps,simW,simH);
 
+  // Parçacık tipi dökümü
+  const typeNames={[TYPE_A]:"A",[TYPE_B]:"B",[TYPE_AB]:"AB",[TYPE_FUEL]:"Fuel",[TYPE_OX]:"Ox",[TYPE_PRODUCT]:"Ürün",[TYPE_H]:"H",[TYPE_HE]:"He",[TYPE_U]:"U",[TYPE_FR]:"Fr",[TYPE_N]:"n"};
+  const typeColors={[TYPE_A]:"#66b4ff",[TYPE_B]:"#ffa050",[TYPE_AB]:"#b466ff",[TYPE_FUEL]:"#ff5050",[TYPE_OX]:"#50cc50",[TYPE_PRODUCT]:"#cccc66",[TYPE_H]:"#40d0ff",[TYPE_HE]:"#ffee44",[TYPE_U]:"#44ff88",[TYPE_FR]:"#ff6688",[TYPE_N]:"#ffffff"};
+  function countTypes(particles) {
+    const c={};
+    for(const p of particles){ c[p.ptype]=(c[p.ptype]||0)+1; }
+    return c;
+  }
+  const normTypes=countTypes(s.ps.filter(p=>p.sector===SECTOR_NORMAL));
+  const revTypes=countTypes(s.ps.filter(p=>p.sector===SECTOR_REVERSE));
+
   const tabBtn=(id,label)=>(
     <button key={id} onClick={()=>{setTab(id);tabRef.current=id;}}
       style={{flex:1,padding:"7px 0",background:tab===id?"#1a2a4a":"transparent",color:tab===id?"#5090ff":"#556",
@@ -1355,7 +1403,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v45</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v47</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1379,8 +1427,8 @@ export default function ThermoSim() {
         <button onClick={()=>{
           s.run=false;
           if(s.mode==="reverse"&&s.revMode==="playback"&&s.revF){s.revI=Math.min(s.revI+1,s.revF.length-1);s.ps=s.revF[s.revI].map(p=>({...p}));}
-          else if(s.mode==="reverse"&&s.revMode==="dynamic"){const tr=s.timeReversed;for(const p of s.ps){p.vx*=-1;p.vy*=-1;}physicsStep(s.ps,simW,simH,1/60,"normal",1,0,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp,tr);for(const p of s.ps){p.vx*=-1;p.vy*=-1;}s.rxnT+=rxnStep(s.ps,1/60,"reverse",s.rxnRad,s.rxn,false,s.eam,s.isrxn,tr,s.rxnDh,s.rxnBal);s.rxnT+=rxnStep(s.ps,1/60,"reverse",s.nucRad,false,s.nucRxn,s.eam,s.isrxn,tr,s.nucDh,s.nucBal);if(s.thermRev)antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp,tr);if(s.spatialRev)antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode,tr);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm,tr);}
-          else{const tr=s.timeReversed;physicsStep(s.ps,simW,simH,1/60,s.mode,s.rest,s.coup,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp,tr);rxnStep(s.ps,1/60,s.mode,s.rxnRad,s.rxn,false,s.eam,s.isrxn,tr,s.rxnDh,s.rxnBal);rxnStep(s.ps,1/60,s.mode,s.nucRad,false,s.nucRxn,s.eam,s.isrxn,tr,s.nucDh,s.nucBal);if(s.thermRev&&(s.mode==="mixed_physical"||s.mode==="mixed_cinematic"))antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp,tr);if(s.spatialRev&&(s.mode==="mixed_physical"||s.mode==="mixed_cinematic"))antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode,tr);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm,tr);}
+          else if(s.mode==="reverse"&&s.revMode==="dynamic"){const tr=s.timeReversed;for(const p of s.ps){p.vx*=-1;p.vy*=-1;}physicsStep(s.ps,simW,simH,1/60,"normal",1,0,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp,tr);for(const p of s.ps){p.vx*=-1;p.vy*=-1;}s.rxnT+=rxnStep(s.ps,1/60,"reverse",s.rxnRad,s.rxn,false,s.eam,s.isrxn,tr,s.rxnDh,s.rxnBal);s.rxnT+=rxnStep(s.ps,1/60,"reverse",s.nucRad,false,s.nucRxn,s.nucEam,s.isrxn,tr,s.nucDh,s.nucBal);if(s.thermRev)antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp,tr);if(s.spatialRev)antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode,tr);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm,tr);}
+          else{const tr=s.timeReversed;physicsStep(s.ps,simW,simH,1/60,s.mode,s.rest,s.coup,s.walls,s.thermRev,s.thermRevRate,s.wallSolidity,s.thermClamp,tr);rxnStep(s.ps,1/60,s.mode,s.rxnRad,s.rxn,false,s.eam,s.isrxn,tr,s.rxnDh,s.rxnBal);rxnStep(s.ps,1/60,s.mode,s.nucRad,false,s.nucRxn,s.nucEam,s.isrxn,tr,s.nucDh,s.nucBal);if(s.thermRev)antiFourierStep(s.ps,simW,simH,1/60,s.thermRevRate,s.thermClamp,tr);if(s.spatialRev)antiDiffusionStep(s.ps,simW,simH,1/60,s.spatialRevRate,s.spatialRevMode,s.walls,s.wallSolidity,s.spatialHeatMode,tr);enforceWalls(s.ps,s.walls,s.wallSolidity,0.98);wallThermalTransfer(s.ps,s.walls,1/60,s.wallThermalPerm,tr);}
           s.frame++;bump();
         }} style={{flex:.6,padding:"10px 0",borderRadius:6,border:"none",background:"#1e1e2e",color:"#889",fontFamily:"inherit",fontWeight:600,fontSize:11,cursor:"pointer"}}>
           Adım→
@@ -1410,8 +1458,8 @@ export default function ThermoSim() {
           const h = Math.round(simW * 0.65);
           // Snapshot'taki ayarları geri yükle
           Object.assign(s, {
-            mode: snap.mode, rxn: snap.rxn, nucRxn: snap.nucRxn, rxnDh: snap.rxnDh, rxnBal: snap.rxnBal, rxnRad: snap.rxnRad, rxnABRatio: snap.rxnABRatio, rxnProductRatio: snap.rxnProductRatio, hotColdRatio: snap.hotColdRatio, nucDh: snap.nucDh, nucBal: snap.nucBal, nucRad: snap.nucRad, nucHURatio: snap.nucHURatio, nucNPct: snap.nucNPct, coup: snap.coup, rest: snap.rest, eam: snap.eam,
-            walls: snap.walls.map(w=>({...w})), wallSolidity: snap.wallSolidity, wallThermalPerm: snap.wallThermalPerm, wallLeftTemp: snap.wallLeftTemp, wallRightTemp: snap.wallRightTemp,
+            mode: snap.mode, rxn: snap.rxn, nucRxn: snap.nucRxn, rxnDh: snap.rxnDh, rxnBal: snap.rxnBal, rxnRad: snap.rxnRad, rxnABRatio: snap.rxnABRatio, rxnProductRatio: snap.rxnProductRatio, hotColdRatio: snap.hotColdRatio, nucDh: snap.nucDh, nucBal: snap.nucBal, nucRad: snap.nucRad, nucHURatio: snap.nucHURatio, nucNPct: snap.nucNPct, coup: snap.coup, rest: snap.rest, eam: snap.eam, nucEam: snap.nucEam,
+            walls: snap.walls.map(w=>({...w})), wallSolidity: snap.wallSolidity, wallThermalPerm: snap.wallThermalPerm, wallLeftTemp: snap.wallLeftTemp, wallRightTemp: snap.wallRightTemp, wallLeftNormPct: snap.wallLeftNormPct, wallLeftRevPct: snap.wallLeftRevPct,
             thermRev: snap.thermRev, thermRevRate: snap.thermRevRate, thermClamp: snap.thermClamp,
             spatialRev: snap.spatialRev, spatialRevRate: snap.spatialRevRate,
             spatialRevMode: snap.spatialRevMode, spatialHeatMode: snap.spatialHeatMode,
@@ -1423,7 +1471,7 @@ export default function ThermoSim() {
           s.ps = pr.ps;
           s.frame=0; s.sH=[]; s.sN=[]; s.sR=[]; s.eH=[]; s.kH=[]; s.rxnT=0;
           s.revF=null; s.revI=0; s.run=false; s.spdAcc=0; s.timeReversed=false;
-          { const bothOn=s.rxn&&s.nucRxn; if(s.rxn) seedReactants(s.ps, s.rxnABRatio, s.rxnProductRatio, bothOn?0.5:1); if(s.nucRxn) seedNuclear(s.ps, s.nucHURatio, s.nucNPct); } applyHotColdRatio(s.ps, s.hotColdRatio); if(s.walls.length>0) applyWallTemps(s.ps, s.walls, s.wallLeftTemp, s.wallRightTemp);
+          { const bothOn=s.rxn&&s.nucRxn; if(s.rxn) seedReactants(s.ps, s.rxnABRatio, s.rxnProductRatio, bothOn?0.5:1); if(s.nucRxn) seedNuclear(s.ps, s.nucHURatio, s.nucNPct); } applyHotColdRatio(s.ps, s.hotColdRatio); if(s.walls.length>0){ applyWallPartition(s.ps, s.walls, s.wallLeftNormPct, s.wallLeftRevPct, simW, Math.round(simW*0.65)); applyWallTemps(s.ps, s.walls, s.wallLeftTemp, s.wallRightTemp); }
           for(const p of s.ps) delete p._wallSide;
           // Mod'u snapshot'tan yeniden uygula (sektör dönüşümü)
           if(snap.mode!==pr.mode) setMode(snap.mode);
@@ -1521,7 +1569,8 @@ export default function ThermoSim() {
           <div style={{fontSize:7,color:"#554",marginTop:-4,marginBottom:4}}>Yenileme (🔄) tuşuna basınca uygulanır</div>
           <Sl label="Elastiklik" value={s.rest} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.rest=v;bump();}}/>
           <Sl label="Kuplaj κ" value={s.coup} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
-          <Sl label="Ea çarpanı" value={s.eam} min={0} max={5} step={.01} fmt={v=>v.toFixed(1)} onChange={v=>{s.eam=v;bump();}}/>
+          {s.rxn&&<Sl label="Kimyasal Ea çarpanı" value={s.eam} min={0} max={5} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.eam=v;bump();}}/>}
+          {s.nucRxn&&<Sl label="Nükleer Ea çarpanı" value={s.nucEam} min={0} max={5} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.nucEam=v;bump();}}/>}
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
             <Tg label="Kimyasal Rk." v={s.rxn} set={v=>{s.rxn=v;if(v)seedReactants(s.ps,s.rxnABRatio,s.rxnProductRatio,s.nucRxn?0.5:1);bump();}}/>
             <Tg label="Nükleer Rk." v={s.nucRxn} set={v=>{s.nucRxn=v;if(v)seedNuclear(s.ps,s.nucHURatio,s.nucNPct);bump();}}/>
@@ -1677,6 +1726,16 @@ export default function ThermoSim() {
                 return Math.round(v*100)+"% sıcak";
               }} onChange={v=>{s.wallRightTemp=v;bump();}}/>
               <div style={{fontSize:7,color:"#554",marginTop:-4,marginBottom:4}}>Yenileme (🔄) tuşuna basınca uygulanır</div>
+              <div style={{marginTop:6}}/>
+              <Sl label="Sol Normal %" value={s.wallLeftNormPct} min={0} max={1} step={.01} fmt={v=>{
+                const l=Math.round(v*100), r=100-l;
+                return "Sol "+l+"% / Sağ "+r+"%";
+              }} onChange={v=>{s.wallLeftNormPct=v;bump();}}/>
+              <Sl label="Sol Ters %" value={s.wallLeftRevPct} min={0} max={1} step={.01} fmt={v=>{
+                const l=Math.round(v*100), r=100-l;
+                return "Sol "+l+"% / Sağ "+r+"%";
+              }} onChange={v=>{s.wallLeftRevPct=v;bump();}}/>
+              <div style={{fontSize:7,color:"#554",marginTop:-4,marginBottom:4}}>Parçacık dağılımı — 🔄 ile uygulanır</div>
             </div>
           )}
         </div>)}
@@ -1708,6 +1767,18 @@ export default function ThermoSim() {
         {tab==="stat"&&(<div style={{fontSize:10}}>
           <Row l="Kare" v={s.frame}/><Row l="Parçacık" v={nTot}/>
           <Row l="  Normal" v={nN} c="#66b4ff"/><Row l="  Reverse" v={nR} c="#b466ff"/>
+          {nN>0&&Object.keys(normTypes).length>0&&(
+            <div style={{marginLeft:12}}>
+              <div style={{color:"#66b4ff",fontSize:9,marginTop:2}}>Normal alt gruplar:</div>
+              {Object.entries(normTypes).map(([t,c])=><Row key={"n"+t} l={"  "+(typeNames[t]||"?")} v={c} c={typeColors[t]||"#888"}/>)}
+            </div>
+          )}
+          {nR>0&&Object.keys(revTypes).length>0&&(
+            <div style={{marginLeft:12}}>
+              <div style={{color:"#b466ff",fontSize:9,marginTop:2}}>Reverse alt gruplar:</div>
+              {Object.entries(revTypes).map(([t,c])=><Row key={"r"+t} l={"  "+(typeNames[t]||"?")} v={c} c={typeColors[t]||"#888"}/>)}
+            </div>
+          )}
           <div style={{height:6}}/><Row l="Toplam E" v={tE.toFixed(1)}/><Row l="  Kinetik" v={tK.toFixed(1)}/><Row l="Ort. T" v={avgT.toFixed(2)}/>
           <div style={{height:6}}/><Row l="Entropi (≈)" v={calcEntropy(s.ps,simW,simH).toFixed(2)}/>
           {nR>0&&<Row l="Decoherence" v={dec.toFixed(2)} c={dec>.7?"#f44":dec>.4?"#f80":"#8a8"}/>}
@@ -1715,10 +1786,6 @@ export default function ThermoSim() {
             <Row l="Playback" v={`${Math.round(s.revI/(s.revF.length-1)*100)}%`} c="#88a"/>
           )}
           <div style={{height:6}}/><Row l="Reaksiyonlar" v={s.rxnT}/>
-          <div style={{height:8}}/>
-          <div style={{display:"flex",gap:6,fontSize:8,color:"#556",flexWrap:"wrap"}}>
-            <span>● Normal</span><span style={{color:"#b466ff"}}>◆ Reverse</span>
-          </div>
         </div>)}
 
         {tab==="info"&&(<div style={{fontSize:10,color:"#778",lineHeight:1.6}}>
