@@ -1404,23 +1404,24 @@ export default function ThermoSim() {
   );
 
   return(
-    <div style={{background:"#08080e",minHeight:"100vh",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto"}}>
-      <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v49</span>
+    <div style={{background:"#08080e",height:"100vh",display:"flex",flexDirection:"column",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6,flexShrink:0}}>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v52</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
 
-      <div style={{padding:"6px 8px 0"}}>
+      <div style={{padding:"6px 8px 0",flexShrink:0}}>
         <canvas ref={canvasRef} width={simW} height={simH+78}
           style={{width:"100%",height:"auto",display:"block",borderRadius:4,border:"1px solid #1a1a28"}}/>
-        <div style={{display:"flex",alignItems:"center",gap:4,marginTop:4}}>
-          <span style={{fontSize:8,color:"#445"}}>Soğuk</span>
-          <div style={{flex:1,height:5,borderRadius:3,background:"linear-gradient(90deg,#081046,#1450b4,#14a0aa,#3cc83c,#dcd61e,#e07810,#d21e0e)"}}/>
-          <span style={{fontSize:8,color:"#445"}}>Sıcak</span>
-        </div>
       </div>
 
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+      <div style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px 0"}}>
+        <span style={{fontSize:8,color:"#445"}}>Soğuk</span>
+        <div style={{flex:1,height:5,borderRadius:3,background:"linear-gradient(90deg,#081046,#1450b4,#14a0aa,#3cc83c,#dcd61e,#e07810,#d21e0e)"}}/>
+        <span style={{fontSize:8,color:"#445"}}>Sıcak</span>
+      </div>
       <div style={{display:"flex",gap:4,padding:"6px 8px"}}>
         <button onClick={()=>{s.run=!s.run;bump();}}
           style={{flex:1,padding:"10px 0",borderRadius:6,border:"none",fontFamily:"inherit",fontWeight:700,fontSize:12,cursor:"pointer",
@@ -1524,7 +1525,7 @@ export default function ThermoSim() {
         {[tabBtn("ctrl","Kontrol"),tabBtn("preset","Senaryo"),tabBtn("stat","İstatistik"),tabBtn("info","Bilgi")]}
       </div>
 
-      <div style={{padding:"8px",minHeight:160,paddingBottom:40}}>
+      <div style={{padding:"8px",paddingBottom:40}}>
         {tab==="ctrl"&&(<div>
           {/* Hız: 3 bölgeli slider — 0-1× | 1-10× | 10-100× eşit genişlikte */}
           <div style={{marginBottom:8}}>
@@ -1809,6 +1810,7 @@ export default function ThermoSim() {
           <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Entropi:</b> Shannon bilgi entropisi. Termodinamik mutlak entropi değil.</p>
           <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Karma:</b> κ artınca reverse sektör bozulur (decoherence). Sinematik mod kavramsal gösterimdir.</p>
         </div>)}
+      </div>
       </div>
     </div>
   );
