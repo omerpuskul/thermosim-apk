@@ -556,8 +556,14 @@ function rxnStep(ps,dt,mode,rr,chemOn,nucOn,eam,isr,timeRev,dhShift,balMul){
     rxnCount++;
   }
 
-  const removeArr = [...toRemove].sort((a,b)=>b-a);
-  for(const idx of removeArr) ps.splice(idx, 1);
+  // O(N) silme: splice yerine hayatta kalanları tek geçişte süz
+  // (toRemove'daki indeksler silinir; sonuç içerik+sıra splice ile birebir aynı)
+  if (toRemove.size > 0) {
+    const survivors = [];
+    for (let i = 0; i < ps.length; i++) { if (!toRemove.has(i)) survivors.push(ps[i]); }
+    ps.length = 0;
+    for (let i = 0; i < survivors.length; i++) ps.push(survivors[i]);
+  }
   for(const np of toAdd) ps.push(np);
 
   // ── TEK PARÇACIKLI REAKSİYONLAR ──
@@ -588,7 +594,6 @@ function rxnStep(ps,dt,mode,rr,chemOn,nucOn,eam,isr,timeRev,dhShift,balMul){
     }
   }
 
-  const toRemoveUni = [...usedUni].sort((a,b)=>b-a);
   const toAddUni = [];
   for(const rx of toReactUni){
     const a=ps[rx.i];
@@ -611,7 +616,12 @@ function rxnStep(ps,dt,mode,rr,chemOn,nucOn,eam,isr,timeRev,dhShift,balMul){
     rxnCount++;
   }
 
-  for(const idx of toRemoveUni) ps.splice(idx, 1);
+  if (usedUni.size > 0) {
+    const survivorsU = [];
+    for (let i = 0; i < ps.length; i++) { if (!usedUni.has(i)) survivorsU.push(ps[i]); }
+    ps.length = 0;
+    for (let i = 0; i < survivorsU.length; i++) ps.push(survivorsU[i]);
+  }
   for(const np of toAddUni) ps.push(np);
 
   return rxnCount;
@@ -1413,7 +1423,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",height:"100vh",display:"flex",flexDirection:"column",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6,flexShrink:0}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v55</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v57</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1813,14 +1823,57 @@ export default function ThermoSim() {
         </div>)}
 
         {tab==="info"&&(<div style={{fontSize:10,color:"#778",lineHeight:1.6}}>
-          <p style={{color:"#f80",fontWeight:600,margin:"0 0 6px"}}>⚠ Eğitimsel toy model.</p>
-          <p style={{margin:"0 0 6px"}}>"Ters entropili sektör" gerçek fizikte doğrulanmış bir kavram değildir. Termodinamik okun yönünü kavramsal olarak keşfetmek için tasarlanmış iç tutarlı bir kurgudur.</p>
-          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Playback:</b> İleriye simüle et → kaydet → ters oynat. Hamiltonian zaman tersleme. ~25 sn döngü. Fiziksel olarak tutarlı.</p>
-          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Dinamik:</b> Her adımda v→-v, ileri adım, v→-v. Süresiz çalışır ama FP hata birikir. Deneysel.</p>
-          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Termal Ters (Anti-Fourier):</b> Normal fizikte ısı sıcaktan soğuğa akar (Fourier). Bu modda ters: sıcak reverse parçacıklar enerji toplar, soğuklar kaybeder → sıcaklık homojenleşmek yerine kutuplaşır. Maxwell'in cini benzeri bir kavramsal gösterim.</p>
-          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Uzamsal Ters (Anti-Difüzyon):</b> İki mod: 🧲 Toplanma → dağınık parçacıklar kütle merkezine çekilir (ters entropi). 💥 Dağılma → parçacıklar COM'dan uzaklaştırılır (hızlandırılmış difüzyon). Kontrol sekmesinden tek tuşla geçiş.</p>
-          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Entropi:</b> Shannon bilgi entropisi. Termodinamik mutlak entropi değil.</p>
-          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Karma:</b> κ artınca reverse sektör bozulur (decoherence). Sinematik mod kavramsal gösterimdir.</p>
+          <p style={{color:"#f80",fontWeight:600,margin:"0 0 8px"}}>⚠ Eğitimsel toy model. Gerçek fizik simülasyonu değil; termodinamiğin okunu ve "ters" süreçleri kavramsal keşfetmek için iç tutarlı bir kurgudur.</p>
+
+          <p style={{color:"#5090ff",fontWeight:700,margin:"8px 0 3px"}}>━ TERS ENTROPİ ━</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Ters sektör (◆):</b> Normal parçacıklar (●) standart fizik izler. Ters parçacıklar entropiyi azaltma eğilimli kurgusal bir sektördür — gerçek fizikte doğrulanmamıştır.</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Playback ⏪:</b> İleri simüle et → kaydet → geri oynat. Hamiltonian zaman tersleme, fiziksel olarak tutarlı, ~25 sn döngü.</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Dinamik:</b> Her adımda v→−v, ileri adım, v→−v. Süresiz çalışır ama kayan nokta hatası birikir.</p>
+
+          <p style={{color:"#5090ff",fontWeight:700,margin:"8px 0 3px"}}>━ ZAMANI GERİ ALMA (⏳) ━</p>
+          <p style={{margin:"0 0 6px"}}>Tüm fizik motorunu tersine çevirir. Tutarlılık için: çarpışma elastikliği e→1/e olur (enerji kaybı yerine kazanım), duvar sönümü 0.98→1.02'ye döner, reaksiyonlarda kf↔kb yer değiştirir. Sonuç: sıcak daha sıcak, soğuk daha soğuk olur → entropi azalır. Sonsuza dek geri gidiş fiziksel değildir (hız sınırı devreye girer).</p>
+
+          <p style={{color:"#5090ff",fontWeight:700,margin:"8px 0 3px"}}>━ TERMAL & UZAMSAL TERS ━</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Termal Ters (Anti-Fourier):</b> Normalde ısı sıcaktan soğuğa akar. Bu modda tersine: sıcak parçacık enerji toplar, soğuk kaybeder → sıcaklık kutuplaşır. Maxwell'in cini benzeri kavram. Şiddet "termal ters" slider'ıyla ayarlanır.</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Uzamsal Ters (Anti-Difüzyon):</b> 🧲 Toplanma → parçacıklar kütle merkezine çekilir (entropi azalır). 💥 Dağılma → merkezden uzaklaşır. Ayrıca toplanırken/dağılırken 🔥 ısınma veya ❄ soğuma seçilebilir; şiddeti ayrı slider'la ayarlanır.</p>
+
+          <p style={{color:"#5090ff",fontWeight:700,margin:"8px 0 3px"}}>━ KİMYASAL REAKSİYONLAR ━</p>
+          <p style={{margin:"0 0 6px"}}>A+B⇌AB (sentez/ayrışma) ve Yakıt+Oksijen→Ürün (yanma). Slider'lar: A/B oranı, reaktan/ürün oranı, ΔH kayması (ekzo↔endotermik), ileri/geri dengesi (Keq), reaksiyon yarıçapı, Ea çarpanı. Oranlar yenilemede (🔄) uygulanır.</p>
+
+          <p style={{color:"#5090ff",fontWeight:700,margin:"8px 0 3px"}}>━ NÜKLEER REAKSİYONLAR ━</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Füzyon:</b> H+H→He, yüksek aktivasyon bariyeri (çok sıcak gerekir), büyük enerji açığa çıkar.</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Fisyon:</b> U+n→2Fr+2n. Her bölünme net +2 parçacık ve 2 yeni nötron üretir → nötronlar başka U'ları tetikler → zincir reaksiyonu (üstel büyüme). Kritik kütle kavramı kendiliğinden ortaya çıkar: yeterli U yoğunluğunda patlama, düşükte sönme.</p>
+          <p style={{margin:"0 0 6px"}}>H/U dağılımı ve nötron oranı yenilemede ayarlanır. Nükleerin kendi ΔH, denge, yarıçap, Ea slider'ları vardır. Ters sektörde/zaman tersinde nükleer reaksiyonlar da tersine işler (birleşme). Kimyasal+nükleer aynı anda açıkken parçacıklar paylaşılır; nükleer parçacıklar kimyasal tepkimelerde de rol alabilir.</p>
+
+          <p style={{color:"#5090ff",fontWeight:700,margin:"8px 0 3px"}}>━ DUVARLAR ━</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Dış duvar & bölme duvarı:</b> Elastiklikleri ayrı ayarlanır (0=tam emici, 1=elastik, 1.1=enerji kazanımı). Bölme duvarının katılığı (madde geçirgenliği) ve ısı geçirgenliği ayarlanabilir. İki alanın sıcaklığı ve parçacık dağılımı (sol/sağ Normal & Ters %) bağımsız belirlenir.</p>
+
+          <p style={{color:"#5090ff",fontWeight:700,margin:"8px 0 3px"}}>━ İSTATİSTİK & ÖLÇÜMLER ━</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Entropi:</b> Shannon bilgi entropisi (uzamsal dağılım), termodinamik mutlak entropi değil. <b style={{color:"#aab"}}>Decoherence:</b> karma modda ters sektörün bozulma derecesi. İstatistik sekmesi normal/ters sektörü ve her birinin alt gruplarını (A, B, AB, H, He, U, Fr, n…) ayrı sayar.</p>
+          <p style={{margin:"0 0 6px"}}><b style={{color:"#aab"}}>Karma (κ):</b> Normal ve ters sektör arası kuplaj. κ arttıkça ters sektör bozulur. Sinematik mod yalnızca kavramsal görseldir.</p>
+
+          <p style={{color:"#556",margin:"8px 0 0",fontSize:9}}>Not: Parçacık sayısı slider'da 1000'le sınırlıdır, ancak fisyon zinciri bu sınırın üstüne çıkabilir (gerçek zincir reaksiyonu gibi). Çok yüksek sayılarda performans düşebilir.</p>
+
+          <p style={{color:"#f0a050",fontWeight:700,margin:"12px 0 3px",borderTop:"1px solid #1a1a2a",paddingTop:8}}>━━ BİLİMSEL ARKA PLAN ━━</p>
+          <p style={{margin:"0 0 6px"}}>Bu simülasyonun çekirdek sorusu şu: <b style={{color:"#aab"}}>Fizik yasaları zamanda simetrikse, neden zaman tek yönde akıyor gibi görünür?</b></p>
+
+          <p style={{color:"#5090ff",fontWeight:600,margin:"6px 0 3px"}}>Zaman okunun paradoksu</p>
+          <p style={{margin:"0 0 6px"}}>Newton ve kuantum mekaniğinin temel denklemleri zaman-tersinir (T-simetrik): bir çarpışma filmini geri oynatsanız da yasalar ihlal edilmez. Oysa kırılan bardak kendini onarmaz, ısı sıcaktan soğuğa akar. Bu tek yönlülük yasalardan değil, <b style={{color:"#aab"}}>başlangıç koşullarının düşük entropili olmasından</b> ve istatistiğin devasa olasılık farkından doğar (Boltzmann). ⏳ "zamanı geri alma" tam da bu T-simetriyi görselleştirir: motorun tamamını (sönüm, elastiklik, reaksiyon yönü) tersine çevirince sistem "geçmişine" doğru evrilir.</p>
+
+          <p style={{color:"#5090ff",fontWeight:600,margin:"6px 0 3px"}}>İkinci yasa ve Maxwell'in cini</p>
+          <p style={{margin:"0 0 6px"}}>Termodinamiğin 2. yasası entropinin (kapalı sistemde) azalmayacağını söyler. Anti-Fourier modu, Maxwell'in 1867'deki düşünce deneyini canlandırır: hızlı/yavaş molekülleri ayıran bir "cin" entropiyi düşürebilir mi? Cinin bilgiyi işlemesi ve silmesi (Landauer ilkesi) bedelin nereye gittiğini açıklar. Burada "ters sektör", bu bedeli ödemeden ne olurdu sorusunun kontrollü bir kurgusudur.</p>
+
+          <p style={{color:"#5090ff",fontWeight:600,margin:"6px 0 3px"}}>Difüzyon ve kendiliğinden düzen</p>
+          <p style={{margin:"0 0 6px"}}>Bir damla mürekkep suya yayılır, geri toplanmaz — çünkü "yayılmış" hâli astronomik olarak daha olasıdır. Anti-difüzyon (toplanma) bunun tersini zorlar: parçacıklar kendiliğinden kümelenir. Bu, yerçekimiyle yıldız/galaksi oluşumu (yerel entropi düşüşü, toplam artış) ile kavramsal bir paralel taşır.</p>
+
+          <p style={{color:"#5090ff",fontWeight:600,margin:"6px 0 3px"}}>Reaksiyon kinetiği</p>
+          <p style={{margin:"0 0 6px"}}>Reaksiyonlar Arrhenius yasasını izler: oran ∝ exp(−Ea/T). Yüksek aktivasyon enerjisi (Ea) yüksek sıcaklık gerektirir — füzyonun neden milyonlarca derece istediğinin (Coulomb bariyeri) basit analojisi. ΔH (entalpi) reaksiyonun ekzo/endotermik olmasını, kf/kb dengesi de kimyasal dengeyi (Le Chatelier) modeller.</p>
+
+          <p style={{color:"#5090ff",fontWeight:600,margin:"6px 0 3px"}}>Nükleer enerji ve zincir reaksiyonu</p>
+          <p style={{margin:"0 0 6px"}}>Füzyon (hafif çekirdekler birleşir) ve fisyon (ağır çekirdek bölünür) bağlanma enerjisi eğrisinin iki ucudur; ikisi de enerji açığa çıkarır. Fisyonda üretilen nötronların yeni çekirdekleri tetiklemesi <b style={{color:"#aab"}}>zincir reaksiyonu</b> ve <b style={{color:"#aab"}}>kritik kütle</b> kavramlarını doğurur — yeterli yoğunlukta nötronlar kaçamadan yakalanır ve süreç kendini besler. Simülasyonda bu eşik kendiliğinden ortaya çıkar; elle programlanmamıştır.</p>
+
+          <p style={{color:"#5090ff",fontWeight:600,margin:"6px 0 3px"}}>Neden "toy model"?</p>
+          <p style={{margin:"0 0 6px"}}>Bu bir 2B, ~birim-ölçekli, sürekli-zaman yerine ayrık-adımlı bir kurgudur. Amaç sayısal doğruluk değil, <b style={{color:"#aab"}}>kavramları gözle görülebilir ve elle oynanabilir kılmak</b>. Sapmalar (kayan nokta hatası, ayrık çarpışma) bilinçli kabul edilmiştir; gerçek bir hesaplama aracı değil, bir sezgi geliştirme aracıdır.</p>
         </div>)}
       </div>
       </div>
