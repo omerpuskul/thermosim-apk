@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const SPEED_CAP = 400, ENERGY_CAP = 1e4;
 const TYPE_A = 0, TYPE_B = 1, TYPE_AB = 2, TYPE_FUEL = 3, TYPE_OX = 4, TYPE_PRODUCT = 5;
 const TYPE_H = 6, TYPE_HE = 7, TYPE_U = 8, TYPE_FR = 9, TYPE_N = 10;
+const TYPE_COLORS = {[TYPE_A]:"#66b4ff",[TYPE_B]:"#ffa050",[TYPE_AB]:"#b466ff",[TYPE_FUEL]:"#ff5050",[TYPE_OX]:"#50cc50",[TYPE_PRODUCT]:"#cccc66",[TYPE_H]:"#40d0ff",[TYPE_HE]:"#ffee44",[TYPE_U]:"#44ff88",[TYPE_FR]:"#ff6688",[TYPE_N]:"#ffffff"};
 const SECTOR_NORMAL = 0, SECTOR_REVERSE = 1;
 
 const TEMP_COLORS = [
@@ -1195,7 +1196,8 @@ export default function ThermoSim() {
 
     const loop = () => {
       const s = S.current;
-      canvas.width = W; canvas.height = H + GH + 8;
+      if (canvas.width !== W) canvas.width = W;
+      if (canvas.height !== H + GH + 8) canvas.height = H + GH + 8;
 
       if (s.run && s.spd > 0) {
         // Accumulator: spd=0.25 → her 4 karede 1 adım, spd=3 → her karede 3 adım
@@ -1282,7 +1284,7 @@ export default function ThermoSim() {
         if(p.flash>0){ctx.beginPath();ctx.arc(p.x,p.y,p.radius*2.5,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,180,${p.flash/.3*.4})`;ctx.fill();}
         ctx.fillStyle=col;
         if(isR){ctx.beginPath();ctx.moveTo(p.x,p.y-p.radius-1);ctx.lineTo(p.x+p.radius+1,p.y);ctx.lineTo(p.x,p.y+p.radius+1);ctx.lineTo(p.x-p.radius-1,p.y);ctx.closePath();ctx.fill();ctx.strokeStyle="rgba(180,100,255,.7)";ctx.lineWidth=1;ctx.stroke();}
-        else{ctx.beginPath();ctx.arc(p.x,p.y,p.radius,0,Math.PI*2);ctx.fill();ctx.strokeStyle={[TYPE_A]:"#66b4ff",[TYPE_B]:"#ffa050",[TYPE_AB]:"#b466ff",[TYPE_FUEL]:"#ff5050",[TYPE_OX]:"#50cc50",[TYPE_PRODUCT]:"#cccc66",[TYPE_H]:"#40d0ff",[TYPE_HE]:"#ffee44",[TYPE_U]:"#44ff88",[TYPE_FR]:"#ff6688",[TYPE_N]:"#ffffff"}[p.ptype]||"#aaa";ctx.lineWidth=1;ctx.stroke();}
+        else{ctx.beginPath();ctx.arc(p.x,p.y,p.radius,0,Math.PI*2);ctx.fill();ctx.strokeStyle=TYPE_COLORS[p.ptype]||"#aaa";ctx.lineWidth=1;ctx.stroke();}
         if(s.showVel){ctx.strokeStyle="rgba(180,180,80,.4)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+p.vx*.2,p.y+p.vy*.2);ctx.stroke();}
       }
 
@@ -1411,7 +1413,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",height:"100vh",display:"flex",flexDirection:"column",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6,flexShrink:0}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v54</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v55</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
