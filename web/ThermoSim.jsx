@@ -1051,6 +1051,8 @@ export default function ThermoSim() {
   const bump = () => tick(c => c + 1);
   const [tab, setTab] = useState("ctrl");
   const tabRef = useRef("ctrl");
+  // Draw aşaması için önceden ayrılmış diziler (GC baskısını azaltır)
+  const gridBuf = useRef({ tg:new Float64Array(144), cg:new Float64Array(144), dn:new Float64Array(36) });
   const [simW, setSimW] = useState(360);
   const simH = Math.round(simW * 0.65);
 
@@ -1240,8 +1242,8 @@ export default function ThermoSim() {
           s.frame++;
           if (s.frame % 3 === 0) {
             const aS = calcEntropy(s.ps, W, H);
-            const nP = s.ps.filter(p => p.sector === SECTOR_NORMAL);
-            const rP = s.ps.filter(p => p.sector === SECTOR_REVERSE);
+            const nP=[],rP=[];
+            for(let i=0;i<s.ps.length;i++){if(s.ps[i].sector===SECTOR_NORMAL)nP.push(s.ps[i]);else rP.push(s.ps[i]);}
             s.sH.push(aS); s.sN.push(nP.length>1?calcEntropy(nP,W,H):0); s.sR.push(rP.length>1?calcEntropy(rP,W,H):0);
             let tE=0,tK=0;for(const p of s.ps){const ke=.5*p.mass*(p.vx*p.vx+p.vy*p.vy);tK+=ke;tE+=ke+p.energy;}
             s.eH.push(tE); s.kH.push(tK);
@@ -1255,12 +1257,14 @@ export default function ThermoSim() {
       ctx.fillStyle="#0c0c16"; ctx.fillRect(0,0,W,H);
 
       if (s.showTBg && s.ps.length > 0) {
-        const gr=12,cw=W/gr,ch=H/gr,tg=new Float64Array(gr*gr),cg=new Float64Array(gr*gr);
+        const gr=12,cw=W/gr,ch=H/gr,tg=gridBuf.current.tg,cg=gridBuf.current.cg;
+        tg.fill(0);cg.fill(0);
         for(const p of s.ps){const cx=Math.min(Math.max(Math.floor(p.x/W*gr),0),gr-1),cy=Math.min(Math.max(Math.floor(p.y/H*gr),0),gr-1);tg[cx*gr+cy]+=.5*(p.vx*p.vx+p.vy*p.vy)/p.mass;cg[cx*gr+cy]++;}
         for(let ix=0;ix<gr;ix++) for(let iy=0;iy<gr;iy++){const idx=ix*gr+iy;if(cg[idx]>0){const[r,g,b]=tempToRGB(tg[idx]/cg[idx]);ctx.fillStyle=`rgba(${r},${g},${b},0.18)`;ctx.fillRect(ix*cw,iy*ch,cw+1,ch+1);}}
       }
       if (s.showEMap && s.ps.length > 0) {
-        const gr=6,cw=W/gr,ch=H/gr,dn=new Float64Array(gr*gr);
+        const gr=6,cw=W/gr,ch=H/gr,dn=gridBuf.current.dn;
+        dn.fill(0);
         for(const p of s.ps){dn[Math.min(Math.max(Math.floor(p.x/W*gr),0),gr-1)*gr+Math.min(Math.max(Math.floor(p.y/H*gr),0),gr-1)]++;}
         const ex=s.ps.length/(gr*gr);
         for(let ix=0;ix<gr;ix++) for(let iy=0;iy<gr;iy++){const dv=Math.abs(dn[ix*gr+iy]-ex)/Math.max(ex,1),a=Math.min(dv*.15,.35);if(a>.02){ctx.fillStyle=`rgba(255,100,50,${a})`;ctx.fillRect(ix*cw,iy*ch,cw+1,ch+1);}}
@@ -1407,7 +1411,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",height:"100vh",display:"flex",flexDirection:"column",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6,flexShrink:0}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v53</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v54</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
