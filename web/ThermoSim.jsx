@@ -1426,7 +1426,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",height:"100vh",display:"flex",flexDirection:"column",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6,flexShrink:0}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v62</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v63</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1597,8 +1597,8 @@ export default function ThermoSim() {
             return v.toFixed(2);
           }} onChange={v=>{s.wallElast=v;bump();}}/>
           <Sl label="Kuplaj κ" value={s.coup} min={0} max={1.1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
-          {s.rxn&&<Sl label="Kimyasal Ea çarpanı" value={s.eam} min={0} max={15} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.eam=v;bump();}}/>}
-          {s.nucRxn&&<Sl label="Nükleer Ea çarpanı" value={s.nucEam} min={0} max={15} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.nucEam=v;bump();}}/>}
+          {s.rxn&&<NLSl label="Kimyasal Ea çarpanı" value={s.eam} zones={[[0,5],[5,15]]} split={[0.667,0.333]} step={[0.01,0.1]} fmt={v=>v.toFixed(2)} onChange={v=>{s.eam=v;bump();}}/>}
+          {s.nucRxn&&<NLSl label="Nükleer Ea çarpanı" value={s.nucEam} zones={[[0,5],[5,15]]} split={[0.667,0.333]} step={[0.01,0.1]} fmt={v=>v.toFixed(2)} onChange={v=>{s.nucEam=v;bump();}}/>}
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
             <Tg label="Kimyasal Rk." v={s.rxn} set={v=>{s.rxn=v;if(v)seedReactants(s.ps,s.rxnABRatio,s.rxnProductRatio,s.nucRxn?0.5:1);bump();}}/>
             <Tg label="Nükleer Rk." v={s.nucRxn} set={v=>{s.nucRxn=v;if(v)seedNuclear(s.ps,s.nucHURatio,s.nucNPct);bump();}}/>
@@ -1632,7 +1632,7 @@ export default function ThermoSim() {
                 if(v<0.95) return v.toFixed(1)+"× (geri baskın)";
                 return "1.0× (dengeli)";
               }} onChange={v=>{s.rxnBal=v;bump();}}/>
-              <Sl label="Kimyasal yarıçap" value={s.rxnRad} min={4} max={100} step={1} fmt={v=>v.toFixed(0)+"px"} onChange={v=>{s.rxnRad=v;bump();}}/>
+              <NLSl label="Kimyasal yarıçap" value={s.rxnRad} zones={[[4,40],[40,100]]} split={[0.667,0.333]} step={[1,1]} fmt={v=>Math.round(v)+"px"} onChange={v=>{s.rxnRad=v;bump();}}/>
             </div>
           )}
           {s.nucRxn&&(
@@ -1655,12 +1655,12 @@ export default function ThermoSim() {
                 if(v<0.95) return v.toFixed(1)+"× (geri birleşme baskın)";
                 return "1.0× (dengeli)";
               }} onChange={v=>{s.nucBal=v;bump();}}/>
-              <Sl label="Nükleer yarıçap" value={s.nucRad} min={4} max={100} step={1} fmt={v=>v.toFixed(0)+"px"} onChange={v=>{s.nucRad=v;bump();}}/>
+              <NLSl label="Nükleer yarıçap" value={s.nucRad} zones={[[4,40],[40,100]]} split={[0.667,0.333]} step={[1,1]} fmt={v=>Math.round(v)+"px"} onChange={v=>{s.nucRad=v;bump();}}/>
             </div>
           )}
           {s.thermRev&&(
             <div style={{marginTop:6}}>
-              <Sl label="Anti-Fourier şiddeti" value={s.thermRevRate} min={0} max={5} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.thermRevRate=v;bump();}}/>
+              <NLSl label="Anti-Fourier şiddeti" value={s.thermRevRate} zones={[[0,1],[1,5]]} split={[0.5,0.5]} step={[0.01,0.1]} fmt={v=>v.toFixed(2)} onChange={v=>{s.thermRevRate=v;bump();}}/>
               <Sl label="Enerji aktarım oranı" value={s.thermClamp} min={0} max={1.1} step={.01} fmt={v=>{
                 if(v<=0) return "0.00 (tam koruma)";
                 if(v>1.0) return "∞ (sınırsız)";
@@ -1692,30 +1692,9 @@ export default function ThermoSim() {
                   💥 Dağılma
                 </button>
               </div>
-              {/* Anti-difüzyon şiddeti: 4 çeyrekli non-lineer slider
-                  raw 0-250→0-1 | 250-500→1-2 | 500-750→2-10 | 750-1000→10-60
-                  Etkin step: 0-2 arası ~0.01, 2-10 arası ~0.1, 10-60 arası ~0.2 */}
-              <div style={{marginBottom:8}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"#778",marginBottom:2}}>
-                  <span>Anti-difüzyon şiddeti</span>
-                  <span style={{color:"#aab"}}>{s.spatialRevRate<2?s.spatialRevRate.toFixed(2):s.spatialRevRate<10?s.spatialRevRate.toFixed(1):Math.round(s.spatialRevRate)}</span>
-                </div>
-                <input type="range" min={0} max={1000} step={1}
-                  value={s.spatialRevRate<=1?s.spatialRevRate*250:s.spatialRevRate<=2?250+(s.spatialRevRate-1)*250:s.spatialRevRate<=10?500+(s.spatialRevRate-2)/8*250:750+(s.spatialRevRate-10)/50*250}
-                  onChange={e=>{
-                    var raw=parseInt(e.target.value);
-                    var v;
-                    if(raw<=250){v=raw/250*1;}
-                    else if(raw<=500){v=1+(raw-250)/250*1;}
-                    else if(raw<=750){v=2+(raw-500)/250*8;}
-                    else{v=10+(raw-750)/250*50;}
-                    s.spatialRevRate=v;bump();
-                  }}
-                  style={{width:"100%",height:6,accentColor:"#3070d0",cursor:"pointer"}}/>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:"#334",marginTop:1}}>
-                  <span>0</span><span style={{color:"#5080c0"}}>▼1</span><span style={{color:"#5080c0"}}>▼2</span><span style={{color:"#5080c0"}}>▼10</span><span>60</span>
-                </div>
-              </div>
+              <NLSl label="Anti-difüzyon şiddeti" value={s.spatialRevRate}
+                zones={[[0,1],[1,2],[2,10],[10,75]]} split={[0.25,0.25,0.25,0.25]} step={[0.01,0.01,0.1,1]}
+                fmt={v=>v<2?v.toFixed(2):v<10?v.toFixed(1):Math.round(v)} onChange={v=>{s.spatialRevRate=v;bump();}}/>
               <div style={{fontSize:8,color:"#778",marginTop:6,marginBottom:3}}>Termal etki:</div>
               <div style={{display:"flex",gap:3}}>
                 <button onClick={()=>{s.spatialHeatMode="heat";bump();}}
@@ -1936,6 +1915,58 @@ function Sl({label,value,min,max,step,fmt,onChange}){
       <span style={{color:"#aab"}}>{fmt(value)}</span>
     </div>
     <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(parseFloat(e.target.value))} style={{width:"100%",height:6,accentColor:"#3070d0",cursor:"pointer"}}/>
+  </div>);
+}
+function NLSl({label,value,zones,split,step,fmt,onChange}){
+  // zones: [[v0,v1],[v1,v2],...] her bölgenin değer aralığı
+  // split: her bölgenin slider'da kapladığı oran [0.5,0.5] gibi (toplam 1)
+  // step: her bölgenin -/+ adım büyüklüğü [0.01,0.1] gibi
+  var RAW=1000;
+  // değer → ham slider pozisyonu
+  function valToRaw(v){
+    var acc=0;
+    for(var i=0;i<zones.length;i++){
+      var lo=zones[i][0],hi=zones[i][1],w=split[i]*RAW;
+      if(v<=hi||i===zones.length-1){
+        var frac=(v-lo)/(hi-lo);
+        if(frac<0)frac=0;if(frac>1)frac=1;
+        return acc+frac*w;
+      }
+      acc+=w;
+    }
+    return RAW;
+  }
+  // ham slider pozisyonu → değer
+  function rawToVal(raw){
+    var acc=0;
+    for(var i=0;i<zones.length;i++){
+      var lo=zones[i][0],hi=zones[i][1],w=split[i]*RAW;
+      if(raw<=acc+w||i===zones.length-1){
+        var frac=(raw-acc)/w;
+        if(frac<0)frac=0;if(frac>1)frac=1;
+        return lo+frac*(hi-lo);
+      }
+      acc+=w;
+    }
+    return zones[zones.length-1][1];
+  }
+  // mevcut değerin hangi bölgede olduğunu bul → o bölgenin step'i
+  function curStep(v){
+    for(var i=0;i<zones.length;i++){ if(v<=zones[i][1]||i===zones.length-1) return step[i]; }
+    return step[step.length-1];
+  }
+  var vmin=zones[0][0], vmax=zones[zones.length-1][1];
+  function dec(){var st=curStep(value);var nv=Math.max(vmin,Math.round((value-st)*1e6)/1e6);onChange(nv);}
+  function inc(){var st=curStep(value);var nv=Math.min(vmax,Math.round((value+st)*1e6)/1e6);onChange(nv);}
+  var btnSt={width:26,height:22,border:"none",borderRadius:3,background:"#1a1a2a",color:"#8899bb",fontSize:14,fontWeight:700,cursor:"pointer",padding:0,lineHeight:"22px",textAlign:"center",touchAction:"manipulation",userSelect:"none",WebkitUserSelect:"none"};
+  return(<div style={{marginBottom:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"#778",marginBottom:2}}>
+      <span style={{display:"flex",alignItems:"center",gap:4}}><HoldBtn style={btnSt} action={dec}>−</HoldBtn><span>{label}</span><HoldBtn style={btnSt} action={inc}>+</HoldBtn></span>
+      <span style={{color:"#aab"}}>{fmt(value)}</span>
+    </div>
+    <input type="range" min={0} max={RAW} step={1} value={valToRaw(value)}
+      onChange={function(e){onChange(rawToVal(parseInt(e.target.value)));}}
+      style={{width:"100%",height:6,accentColor:"#3070d0",cursor:"pointer"}}/>
   </div>);
 }
 function Tg({label,v,set}){
