@@ -446,15 +446,18 @@ function antiDiffusionStep(ps, W, H, dt, rate, mode, walls, wallSolidity, heatMo
     }
 
     // TERMAL ETKİ — heatMode + heatStrength ile kontrol
+    // Isınma ve soğuma SİMETRİK: zaman tersinde (heat↔cool takası) tam tersine döner.
+    // Soğuma çarpanı, ısınma çarpanının tersi (1/boost) olarak hesaplanır ki
+    // ileri ısınma ile ters soğuma birbirini tam dengeleyebilsin (T-simetri).
     if (thermal === "heat") {
-      const speedBoost = 1 + strength * dt * 0.3 * hStr;
-      p.vx *= speedBoost;
-      p.vy *= speedBoost;
+      const boost = 1 + strength * dt * 0.3 * hStr;
+      p.vx *= boost;
+      p.vy *= boost;
     } else if (thermal === "cool") {
-      const speedDamp = 1 - strength * dt * 0.2 * hStr;
-      const clamp = Math.max(speedDamp, 0.5);
-      p.vx *= clamp;
-      p.vy *= clamp;
+      const boost = 1 + strength * dt * 0.3 * hStr;
+      const damp = 1 / boost; // ısınmanın tam tersi
+      p.vx *= damp;
+      p.vy *= damp;
     }
     // "none" → hiçbir şey yapma
   }
@@ -1423,7 +1426,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",height:"100vh",display:"flex",flexDirection:"column",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6,flexShrink:0}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v57</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v62</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1578,8 +1581,8 @@ export default function ThermoSim() {
               <span>⏹</span><span style={{color:"#5080c0"}}>▼1×</span><span style={{color:"#5080c0"}}>▼10×</span><span>100×</span>
             </div>
           </div>
-          <Sl label="Normal ●" value={s.pCntNorm} min={0} max={1000} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntNorm=v;bump();}}/>
-          <Sl label="Ters ◆" value={s.pCntRev} min={0} max={1000} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntRev=v;bump();}}/>
+          <Sl label="Normal ●" value={s.pCntNorm} min={0} max={2000} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntNorm=v;bump();}}/>
+          <Sl label="Ters ◆" value={s.pCntRev} min={0} max={2000} step={1} fmt={v=>v.toFixed(0)+" parçacık"} onChange={v=>{s.pCntRev=v;bump();}}/>
           <div style={{fontSize:8,color:"#556",marginBottom:4}}>Toplam: {s.pCntNorm+s.pCntRev} parçacık (değişiklik sıfırlamada uygulanır)</div>
           <Sl label="Sıcak/Soğuk oranı" value={s.hotColdRatio} min={0} max={1} step={.01} fmt={v=>{
             const hot=Math.round(v*100), cold=100-hot;
@@ -1593,9 +1596,9 @@ export default function ThermoSim() {
             if(v>=1.0) return v.toFixed(2)+" (enerji kazanımı)";
             return v.toFixed(2);
           }} onChange={v=>{s.wallElast=v;bump();}}/>
-          <Sl label="Kuplaj κ" value={s.coup} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
-          {s.rxn&&<Sl label="Kimyasal Ea çarpanı" value={s.eam} min={0} max={5} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.eam=v;bump();}}/>}
-          {s.nucRxn&&<Sl label="Nükleer Ea çarpanı" value={s.nucEam} min={0} max={5} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.nucEam=v;bump();}}/>}
+          <Sl label="Kuplaj κ" value={s.coup} min={0} max={1.1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
+          {s.rxn&&<Sl label="Kimyasal Ea çarpanı" value={s.eam} min={0} max={15} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.eam=v;bump();}}/>}
+          {s.nucRxn&&<Sl label="Nükleer Ea çarpanı" value={s.nucEam} min={0} max={15} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.nucEam=v;bump();}}/>}
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
             <Tg label="Kimyasal Rk." v={s.rxn} set={v=>{s.rxn=v;if(v)seedReactants(s.ps,s.rxnABRatio,s.rxnProductRatio,s.nucRxn?0.5:1);bump();}}/>
             <Tg label="Nükleer Rk." v={s.nucRxn} set={v=>{s.nucRxn=v;if(v)seedNuclear(s.ps,s.nucHURatio,s.nucNPct);bump();}}/>
@@ -1629,7 +1632,7 @@ export default function ThermoSim() {
                 if(v<0.95) return v.toFixed(1)+"× (geri baskın)";
                 return "1.0× (dengeli)";
               }} onChange={v=>{s.rxnBal=v;bump();}}/>
-              <Sl label="Kimyasal yarıçap" value={s.rxnRad} min={4} max={40} step={1} fmt={v=>v.toFixed(0)+"px"} onChange={v=>{s.rxnRad=v;bump();}}/>
+              <Sl label="Kimyasal yarıçap" value={s.rxnRad} min={4} max={100} step={1} fmt={v=>v.toFixed(0)+"px"} onChange={v=>{s.rxnRad=v;bump();}}/>
             </div>
           )}
           {s.nucRxn&&(
@@ -1652,12 +1655,12 @@ export default function ThermoSim() {
                 if(v<0.95) return v.toFixed(1)+"× (geri birleşme baskın)";
                 return "1.0× (dengeli)";
               }} onChange={v=>{s.nucBal=v;bump();}}/>
-              <Sl label="Nükleer yarıçap" value={s.nucRad} min={4} max={40} step={1} fmt={v=>v.toFixed(0)+"px"} onChange={v=>{s.nucRad=v;bump();}}/>
+              <Sl label="Nükleer yarıçap" value={s.nucRad} min={4} max={100} step={1} fmt={v=>v.toFixed(0)+"px"} onChange={v=>{s.nucRad=v;bump();}}/>
             </div>
           )}
           {s.thermRev&&(
             <div style={{marginTop:6}}>
-              <Sl label="Anti-Fourier şiddeti" value={s.thermRevRate} min={0} max={1.0} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.thermRevRate=v;bump();}}/>
+              <Sl label="Anti-Fourier şiddeti" value={s.thermRevRate} min={0} max={5} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.thermRevRate=v;bump();}}/>
               <Sl label="Enerji aktarım oranı" value={s.thermClamp} min={0} max={1.1} step={.01} fmt={v=>{
                 if(v<=0) return "0.00 (tam koruma)";
                 if(v>1.0) return "∞ (sınırsız)";
@@ -1689,7 +1692,30 @@ export default function ThermoSim() {
                   💥 Dağılma
                 </button>
               </div>
-              <Sl label="Anti-difüzyon şiddeti" value={s.spatialRevRate} min={0} max={1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.spatialRevRate=v;bump();}}/>
+              {/* Anti-difüzyon şiddeti: 4 çeyrekli non-lineer slider
+                  raw 0-250→0-1 | 250-500→1-2 | 500-750→2-10 | 750-1000→10-60
+                  Etkin step: 0-2 arası ~0.01, 2-10 arası ~0.1, 10-60 arası ~0.2 */}
+              <div style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"#778",marginBottom:2}}>
+                  <span>Anti-difüzyon şiddeti</span>
+                  <span style={{color:"#aab"}}>{s.spatialRevRate<2?s.spatialRevRate.toFixed(2):s.spatialRevRate<10?s.spatialRevRate.toFixed(1):Math.round(s.spatialRevRate)}</span>
+                </div>
+                <input type="range" min={0} max={1000} step={1}
+                  value={s.spatialRevRate<=1?s.spatialRevRate*250:s.spatialRevRate<=2?250+(s.spatialRevRate-1)*250:s.spatialRevRate<=10?500+(s.spatialRevRate-2)/8*250:750+(s.spatialRevRate-10)/50*250}
+                  onChange={e=>{
+                    var raw=parseInt(e.target.value);
+                    var v;
+                    if(raw<=250){v=raw/250*1;}
+                    else if(raw<=500){v=1+(raw-250)/250*1;}
+                    else if(raw<=750){v=2+(raw-500)/250*8;}
+                    else{v=10+(raw-750)/250*50;}
+                    s.spatialRevRate=v;bump();
+                  }}
+                  style={{width:"100%",height:6,accentColor:"#3070d0",cursor:"pointer"}}/>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:"#334",marginTop:1}}>
+                  <span>0</span><span style={{color:"#5080c0"}}>▼1</span><span style={{color:"#5080c0"}}>▼2</span><span style={{color:"#5080c0"}}>▼10</span><span>60</span>
+                </div>
+              </div>
               <div style={{fontSize:8,color:"#778",marginTop:6,marginBottom:3}}>Termal etki:</div>
               <div style={{display:"flex",gap:3}}>
                 <button onClick={()=>{s.spatialHeatMode="heat";bump();}}
