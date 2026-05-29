@@ -1426,7 +1426,7 @@ export default function ThermoSim() {
   return(
     <div style={{background:"#08080e",height:"100vh",display:"flex",flexDirection:"column",color:"#ccd",fontFamily:"'SF Mono','Menlo',monospace",maxWidth:600,margin:"0 auto",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",padding:"6px 8px",borderBottom:"1px solid #1a1a2a",gap:6,flexShrink:0}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v63</span>
+        <span style={{fontSize:13,fontWeight:700,color:"#5090ff",letterSpacing:1}}>THERMOSIM v64</span>
         <span style={{fontSize:8,color:"#556",flex:1}}>Toy Model</span>
         <span style={{fontSize:8,color:"#f80",background:"#f801",padding:"2px 6px",borderRadius:3}}>⚠ Eğitimsel</span>
       </div>
@@ -1597,8 +1597,8 @@ export default function ThermoSim() {
             return v.toFixed(2);
           }} onChange={v=>{s.wallElast=v;bump();}}/>
           <Sl label="Kuplaj κ" value={s.coup} min={0} max={1.1} step={.01} fmt={v=>v.toFixed(2)} onChange={v=>{s.coup=v;bump();}}/>
-          {s.rxn&&<NLSl label="Kimyasal Ea çarpanı" value={s.eam} zones={[[0,5],[5,15]]} split={[0.667,0.333]} step={[0.01,0.1]} fmt={v=>v.toFixed(2)} onChange={v=>{s.eam=v;bump();}}/>}
-          {s.nucRxn&&<NLSl label="Nükleer Ea çarpanı" value={s.nucEam} zones={[[0,5],[5,15]]} split={[0.667,0.333]} step={[0.01,0.1]} fmt={v=>v.toFixed(2)} onChange={v=>{s.nucEam=v;bump();}}/>}
+          {s.rxn&&<NLSl label="Kimyasal Ea çarpanı" value={s.eam} zones={[[0,5],[5,15]]} split={[0.667,0.333]} step={[0.01,0.01]} fmt={v=>v.toFixed(2)} onChange={v=>{s.eam=v;bump();}}/>}
+          {s.nucRxn&&<NLSl label="Nükleer Ea çarpanı" value={s.nucEam} zones={[[0,5],[5,15]]} split={[0.667,0.333]} step={[0.01,0.01]} fmt={v=>v.toFixed(2)} onChange={v=>{s.nucEam=v;bump();}}/>}
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
             <Tg label="Kimyasal Rk." v={s.rxn} set={v=>{s.rxn=v;if(v)seedReactants(s.ps,s.rxnABRatio,s.rxnProductRatio,s.nucRxn?0.5:1);bump();}}/>
             <Tg label="Nükleer Rk." v={s.nucRxn} set={v=>{s.nucRxn=v;if(v)seedNuclear(s.ps,s.nucHURatio,s.nucNPct);bump();}}/>
@@ -1660,7 +1660,7 @@ export default function ThermoSim() {
           )}
           {s.thermRev&&(
             <div style={{marginTop:6}}>
-              <NLSl label="Anti-Fourier şiddeti" value={s.thermRevRate} zones={[[0,1],[1,5]]} split={[0.5,0.5]} step={[0.01,0.1]} fmt={v=>v.toFixed(2)} onChange={v=>{s.thermRevRate=v;bump();}}/>
+              <NLSl label="Anti-Fourier şiddeti" value={s.thermRevRate} zones={[[0,1],[1,5]]} split={[0.5,0.5]} step={[0.01,0.01]} fmt={v=>v.toFixed(2)} onChange={v=>{s.thermRevRate=v;bump();}}/>
               <Sl label="Enerji aktarım oranı" value={s.thermClamp} min={0} max={1.1} step={.01} fmt={v=>{
                 if(v<=0) return "0.00 (tam koruma)";
                 if(v>1.0) return "∞ (sınırsız)";
